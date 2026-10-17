@@ -1,6 +1,7 @@
 """命令行：不开网页也能批量入库、检索、评估。
 
   python -m omniembed serve                       启动服务和 Web 界面
+  python -m omniembed watchdog                    启动服务并守护（卡死 / 退出时自动重启）
   python -m omniembed ingest <目录|文件...>         本机文件批量入库（同步处理完再退出）
   python -m omniembed ingest-urls urls.csv         CSV / JSONL / 每行一个 URL
   python -m omniembed search "做饭" --mode visual
@@ -116,6 +117,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="omniembed", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("serve", help="启动服务")
+    p = sub.add_parser("watchdog", help="启动服务并守护，卡死或退出时自动重启")
+    p.add_argument("--interval", type=float, default=15.0)
+    p.add_argument("--fails", type=int, default=3)
     p = sub.add_parser("ingest", help="本机文件 / 目录批量入库")
     p.add_argument("paths", nargs="+")
     p.add_argument("--meta", help="JSONL：{file, title, description, tags}")
@@ -137,6 +141,9 @@ def main(argv=None):
     if a.cmd == "serve":
         from .server import main as serve
         return serve()
+    if a.cmd == "watchdog":
+        from .watchdog import main as wd
+        return wd(["--interval", str(a.interval), "--fails", str(a.fails)])
     {"ingest": cmd_ingest, "ingest-urls": cmd_ingest_urls, "search": cmd_search, "eval": cmd_eval, "stats": cmd_stats}[a.cmd](a)
 
 

@@ -9,6 +9,7 @@ import json
 import os
 import secrets
 import tempfile
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,9 @@ from PIL import Image
 from . import __version__, evaluation, media
 from .config import CONFIG
 from .encoder import ENCODER
+from .health import HEALTH, InferenceError, category_of
+from .health_api import build_router as build_health_router
+from .health_api import warmup
 from .openai_api import build_router
 from .pipeline import Pipeline
 from .retrieval import DIMS, MODES, Index
@@ -49,20 +53,40 @@ def embed_auth(authorization: str | None = Header(default=None), x_api_key: str 
     if authorization and authorization.lower().startswith("bearer "):
         tok = authorization[7:].strip()
     if not secrets.compare_digest(tok, CONFIG.api_key):
-        raise HTTPException(401, {"error": {"message": "invalid api key", "type": "invalid_request_error"}})
+        raise HTTPException(401, {"error": {"message": "invalid api key", "type": "invalid_request_error"}},
+                            headers={"Cache-Control": "no-store", "WWW-Authenticate": "Bearer"})
 
 
 app.include_router(build_router(embed_auth, lambda: INDEX.enc))
+app.include_router(build_health_router(embed_auth, lambda: INDEX.enc))
+WARMUP_STOP = threading.Event()
 
 
 @app.on_event("startup")
 def _start():
     PIPE.start()
+    if os.environ.get("OMNI_SKIP_WARMUP") != "1":  # 测试里关闭，用假编码器手动预热
+        threading.Thread(target=warmup, args=(lambda: INDEX.enc,), kwargs={"stop": WARMUP_STOP},
+                         name="warmup", daemon=True).start()
+
+
+@app.on_event("shutdown")
+def _stop():
+    WARMUP_STOP.set()
+    PIPE.stop()
 
 
 @app.exception_handler(ValueError)
 async def _value_error(_: Request, ex: ValueError):
     return JSONResponse({"detail": str(ex)}, status_code=400)
+
+
+@app.exception_handler(InferenceError)
+async def _inference_error(_: Request, ex: InferenceError):
+    """推理失败（显存不足、模型异常、推理锁等待超时）返回 503 和错误类别；原因只写服务日志。"""
+    print(f"[inference] {ex.category}: {ex}")
+    return JSONResponse({"detail": {"error": {"message": ex.category, "type": "server_error"}}}, status_code=503,
+                        headers={"Retry-After": "5"})
 
 
 # ---------- 入库 ----------
@@ -257,11 +281,13 @@ def video_file(vid: str):
 
 @app.get("/api/stats")
 def stats():
-    return {"version": __version__, "model": ENCODER.model_id, "model_loaded": ENCODER.loaded, "device": ENCODER.device,
-            "model_load_s": ENCODER.load_s, "status": STORE.counts(), "indexed": INDEX.size,
+    """不需要密钥，所以只返回类别和计数：不含服务器路径、异常文本或用户提交的 URL。"""
+    enc, h = INDEX.enc, HEALTH.snapshot()
+    return {"version": __version__, "model": enc.model_id, "model_revision": getattr(enc, "resolved_revision", None),
+            "model_loaded": enc.loaded, "device": enc.device, "dtype": getattr(enc, "dtype", None),
+            "model_load_s": enc.load_s, "health": h["status"], "status": STORE.counts(), "indexed": INDEX.size,
             "index_build_s": INDEX.built_s, "processed_since_start": PIPE.processed, "last_error": PIPE.last_error,
-            "frames": {"fps": CONFIG.fps, "max_frames": CONFIG.max_frames}, "data_dir": str(CONFIG.data_dir),
-            "auth": bool(CONFIG.api_key)}
+            "frames": {"fps": CONFIG.fps, "max_frames": CONFIG.max_frames}, "auth": bool(CONFIG.api_key)}
 
 
 # ---------- 召回 ----------

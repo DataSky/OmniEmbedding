@@ -18,6 +18,7 @@ os.environ["OMNI_DATA_DIR"] = tempfile.mkdtemp(prefix="omni_test_")
 os.environ["OMNI_API_KEY"] = ""
 os.environ["OMNI_HOST"] = "127.0.0.1"
 os.environ.pop("OMNI_EMBED_DEFAULT_TASK", None)
+os.environ["OMNI_SKIP_WARMUP"] = "1"  # 不在测试里加载真实模型；健康测试手动预热假编码器
 
 COLORS = {"red": (0, 0, 255), "green": (0, 255, 0), "blue": (255, 0, 0)}  # OpenCV 用 BGR
 WORDS = {"红": "red", "red": "red", "绿": "green", "green": "green", "蓝": "blue", "blue": "blue"}
@@ -30,10 +31,20 @@ def _axis(name):
 
 
 class FakeEncoder:
+    """texts() 与真实编码器一样经过 HEALTH.inference()，便于测健康状态；
+    可通过 hang_s / fail_with / bad_vector 模拟卡死、推理异常、向量异常。"""
     model_id = "fake-encoder"
     device = "cpu"
+    dtype = "float32"
+    revision = resolved_revision = "test-rev"
     load_s = 0.0
     loaded = True
+    hang_s = 0.0
+    fail_with = None
+    bad_vector = None
+
+    def load(self):
+        return self
 
     def _text(self, s):
         v = np.zeros(768, dtype=np.float32)
@@ -50,9 +61,18 @@ class FakeEncoder:
     def docs(self, titles, texts, bs=64):
         return np.stack([self._text(f"{a} {b}") for a, b in zip(titles, texts)])
 
-    def texts(self, texts, prefix="", bs=64):
+    def texts(self, texts, prefix="", bs=64, token_budget=32768, lock_timeout=None):
+        import time
+        from omniembed.health import HEALTH
         self.last_prefix = prefix
-        return np.stack([self._text(t) for t in texts])
+        with HEALTH.inference(lock_timeout):
+            if self.hang_s:
+                time.sleep(self.hang_s)
+            if self.fail_with:
+                raise self.fail_with
+            if self.bad_vector is not None:
+                return np.asarray(self.bad_vector, dtype=np.float32)
+            return np.stack([self._text(t) for t in texts])
 
     def count_tokens(self, texts):
         return sum(len(t) for t in texts)

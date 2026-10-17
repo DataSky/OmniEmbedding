@@ -7,10 +7,12 @@
 """
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 
 from .config import CONFIG
+from .health import HEALTH, InferenceError
 
 QUERY_PREFIX = "task: search result | query: "
 
@@ -27,9 +29,12 @@ def renorm(x: np.ndarray, dim: int | None) -> np.ndarray:
 
 
 class Encoder:
-    def __init__(self, model_id=None, device=None):
+    def __init__(self, model_id=None, device=None, revision=None):
         self.model_id = model_id or CONFIG.model_id
         self.device = device or CONFIG.device
+        self.revision = revision or CONFIG.model_revision
+        self.resolved_revision = None  # 实际加载的提交版本
+        self.dtype = None
         self._m = None
         self._lock = threading.Lock()
         self.load_s = None
@@ -37,6 +42,10 @@ class Encoder:
     @property
     def loaded(self):
         return self._m is not None
+
+    def load(self):
+        self._model()
+        return self
 
     def _model(self):
         if self._m is None:
@@ -47,26 +56,52 @@ class Encoder:
                     dev = self.device
                     if dev == "auto":
                         dev = "cuda" if torch.cuda.is_available() else "cpu"
-                    dtype = torch.bfloat16 if dev == "cuda" else torch.float32
+                    if dev == "cuda":
+                        dev = f"cuda:{torch.cuda.current_device()}"
+                    dtype = torch.bfloat16 if dev.startswith("cuda") else torch.float32
                     t = time.time()
-                    m = SentenceTransformer(self.model_id, device=dev, model_kwargs={"torch_dtype": dtype},
+                    m = SentenceTransformer(self.model_id, device=dev, revision=self.revision,
+                                            model_kwargs={"torch_dtype": dtype},
                                             config_kwargs={"audio_config": None})  # 视频只用画面，不加载音频编码器
                     m.eval()
                     m.max_seq_length = 8192
+                    self.resolved_revision = self._resolve_revision()
+                    self.dtype = str(dtype).replace("torch.", "")
                     self.device, self.load_s, self._m = dev, round(time.time() - t, 1), m
         return self._m
 
-    def _enc(self, items, bs):
+    def _resolve_revision(self):
+        if Path(self.model_id).exists():
+            return "local"
+        try:
+            from huggingface_hub import snapshot_download
+            return Path(snapshot_download(self.model_id, revision=self.revision, local_files_only=True)).name
+        except Exception:
+            return self.revision
+
+    def _enc(self, items, bs, lock_timeout=None):
+        """所有 GPU 推理的唯一入口：经推理锁串行执行，并记录成功 / 失败供健康检查使用。
+        显存不足时释放缓存并报 InferenceOOM，进程继续服务。"""
         import torch
         m = self._model()
-        with torch.inference_mode():
-            e = m.encode(items, batch_size=bs, normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=False)
+        with HEALTH.inference(lock_timeout):
+            try:
+                with torch.inference_mode():
+                    e = m.encode(items, batch_size=bs, normalize_embeddings=True, convert_to_numpy=True,
+                                 show_progress_bar=False)
+            except torch.OutOfMemoryError as ex:
+                torch.cuda.empty_cache()
+                raise InferenceError("InferenceOOM", str(ex)[:300]) from None
+            except InferenceError:
+                raise
+            except Exception as ex:
+                raise InferenceError("InferenceError", f"{type(ex).__name__}: {ex}"[:300]) from ex
         return np.asarray(e, dtype=np.float32)
 
     def query(self, texts, bs=64):
         return self._enc([QUERY_PREFIX + t for t in texts], bs)
 
-    def texts(self, texts, prefix="", bs=64, token_budget=32768):
+    def texts(self, texts, prefix="", bs=64, token_budget=32768, lock_timeout=None):
         """任意前缀的文本编码（/v1/embeddings 用）。
         按长度排序后分批，每批 token 总数不超过 token_budget：短文本照常大批处理，
         长文本自动降到小批，避免几条 8k token 的输入把显存占满（实测不限长度时单批可申请 30+ GiB）。"""
@@ -82,7 +117,7 @@ class Encoder:
             while j < len(order) and j - i < bs and (j - i + 1) * lens[order[j]] <= max(token_budget, lens[order[j]]):
                 j += 1
             idx = order[i:j]
-            out[idx] = self._enc([items[k] for k in idx], len(idx))
+            out[idx] = self._enc([items[k] for k in idx], len(idx), lock_timeout)
             i = j
         return out
 

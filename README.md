@@ -42,6 +42,7 @@ python -m omniembed ingest-urls urls.csv                   # CSV（url,title,des
 python -m omniembed search "厨房里做菜" --mode visual
 python -m omniembed eval evalset.jsonl --modes hybrid,visual --out result.json
 python -m omniembed stats
+python -m omniembed watchdog                              # 启动服务并守护，卡死或退出时自动重启
 ```
 
 评测集格式（JSON 数组或 JSONL）：
@@ -126,6 +127,10 @@ omniembed/
   bm25.py        稀疏矩阵 BM25（jieba 分词）
   retrieval.py   多路召回 + RRF、以图搜、相似视频；数据变化后自动重建索引
   evaluation.py  评测集解析与 R@k / MRR / nDCG 计算
+  health.py      推理锁与健康状态（就绪 / 降级 / 卡死）
+  health_api.py  /health/live、/health/ready、/health/inference 与启动预热
+  openai_api.py  OpenAI 兼容 /v1/embeddings
+  watchdog.py    看门狗
   server.py      FastAPI 接口
   cli.py         命令行
   web/           网页界面（无构建步骤的原生 JS）
@@ -133,7 +138,7 @@ benchmarks/      端到端基准脚本
 tests/           pytest，用假编码器，不需要 GPU 和模型
 ```
 
-接口列表见 [docs/API.md](docs/API.md)。运行测试：`pip install -r requirements-dev.txt && pytest`。
+接口列表见 [docs/API.md](docs/API.md)，健康检查与看门狗见 [docs/HEALTH.md](docs/HEALTH.md)。运行测试：`pip install -r requirements-dev.txt && pytest`。
 
 ## 规模与限制
 

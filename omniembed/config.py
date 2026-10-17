@@ -24,11 +24,24 @@ def _env(name, default, cast=str):
     return default if v is None or v == "" else cast(v)
 
 
+DEFAULT_MODEL = "google/embeddinggemma-2"
+PINNED_REVISION = "914f7f89142e33e77833254d9c9b90c3cef7303b"  # 本项目全部评测所用的权重版本
+
+
 @dataclass
 class Config:
     # 数据目录：数据库、视频、封面都在这里。默认在项目目录下的 data/，可指到大容量盘
     data_dir: Path = field(default_factory=lambda: Path(_env("OMNI_DATA_DIR", Path(__file__).resolve().parent.parent / "data")))
-    model_id: str = field(default_factory=lambda: _env("OMNI_MODEL", "google/embeddinggemma-2"))
+    model_id: str = field(default_factory=lambda: _env("OMNI_MODEL", DEFAULT_MODEL))
+    # 固定权重版本：上游更新后向量会变，已入库的向量就和新查询对不上。设为 main 则跟随最新
+    # 只在使用默认模型时固定到已验证的提交；换了 OMNI_MODEL 则默认 main
+    model_revision: str = field(default_factory=lambda: _env(
+        "OMNI_MODEL_REVISION",
+        PINNED_REVISION if _env("OMNI_MODEL", DEFAULT_MODEL) == DEFAULT_MODEL else "main"))
+    # 健康检查：单次推理超过 inference_timeout_s 判为 stalled；探测最多等 probe_wait_s 拿到推理锁，整体不超过 probe_timeout_s
+    inference_timeout_s: float = field(default_factory=lambda: _env("OMNI_INFERENCE_TIMEOUT", 120.0, float))
+    probe_wait_s: float = field(default_factory=lambda: _env("OMNI_PROBE_WAIT", 10.0, float))
+    probe_timeout_s: float = field(default_factory=lambda: _env("OMNI_PROBE_TIMEOUT", 30.0, float))
     device: str = field(default_factory=lambda: _env("OMNI_DEVICE", "auto"))
     # 抽帧：评测显示 1fps、最多 8 帧与 16/32 帧精度相差 <1 分，速度快 1.8–2.7 倍
     fps: float = field(default_factory=lambda: _env("OMNI_FPS", 1.0, float))

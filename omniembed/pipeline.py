@@ -13,6 +13,7 @@ import numpy as np
 from . import media
 from .config import CONFIG
 from .encoder import ENCODER
+from .health import category_of
 from .store import Store
 
 
@@ -57,20 +58,27 @@ class Pipeline:
 
     # ---------- 后台 worker ----------
     def start(self):
+        """可重复调用：stop() 之后再 start() 会起一组新的 worker（服务热重启、测试里多次启动应用时用到）。"""
+        if any(t.is_alive() for t in self._threads):
+            return
         n = self.store.requeue_stale()
         if n:
             print(f"[pipeline] requeued {n} unfinished jobs")
+        stop = self._stop = threading.Event()  # 每组 worker 绑定自己的停止信号，旧 worker 不会被新一轮唤醒
+        self._threads = []
         for i in range(max(1, self.cfg.workers)):
-            t = threading.Thread(target=self._loop, name=f"pipeline-{i}", daemon=True)
+            t = threading.Thread(target=self._loop, args=(stop,), name=f"pipeline-{i}", daemon=True)
             t.start()
             self._threads.append(t)
 
-    def stop(self):
+    def stop(self, wait_s=5.0):
         self._stop.set()
         self._wake.set()
+        for t in self._threads:
+            t.join(timeout=wait_s)  # 正在处理的那一条做完再退出
 
-    def _loop(self):
-        while not self._stop.is_set():
+    def _loop(self, stop):
+        while not stop.is_set():
             vid = self.store.next_queued()
             if not vid:
                 self._wake.wait(2)
@@ -136,9 +144,11 @@ class Pipeline:
             st.update_video(vid, status="ready", error=None, timings=timings)
             self.processed += 1
         except Exception as ex:
-            msg = str(ex) if isinstance(ex, media.MediaError) else f"{type(ex).__name__}: {ex}"
-            self.last_error = msg
-            if not isinstance(ex, media.MediaError):
+            if isinstance(ex, media.MediaError):
+                msg, self.last_error = str(ex), "MediaError"  # 媒体错误是写给用户看的说明（格式不支持、内网地址…）
+            else:
+                # 其他异常只记类别；完整原因和堆栈只进服务日志，不写进数据库、不对外返回
+                msg = self.last_error = category_of(ex)
                 traceback.print_exc()
             st.update_video(vid, status="failed", error=msg[:500], timings=timings)
 
