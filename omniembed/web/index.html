@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OmniEmbedding</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">OmniEmbedding <span id="ver" class="mute"></span></div>
+  <nav class="tabs" role="tablist" aria-label="功能">
+    <button role="tab" data-tab="ingest" aria-selected="true">入库</button>
+    <button role="tab" data-tab="jobs" aria-selected="false">任务 <span id="jobbadge" class="pill"></span></button>
+    <button role="tab" data-tab="library" aria-selected="false">视频库</button>
+    <button role="tab" data-tab="search" aria-selected="false">召回</button>
+    <button role="tab" data-tab="eval" aria-selected="false">评估</button>
+  </nav>
+  <div id="stat" class="mute stat" aria-live="polite"></div>
+</header>
+
+<main>
+  <section id="tab-ingest" class="tab" role="tabpanel">
+    <div class="cols3">
+      <div class="panel">
+        <h2>上传视频文件</h2>
+        <label id="drop" class="drop" for="files">拖入视频，或点击选择（可多选）<input id="files" type="file" accept="video/*" multiple hidden></label>
+        <label class="fld">统一描述（可选）<input id="up-desc" placeholder="例如：2026 秋季美食活动素材"></label>
+        <label class="fld">标签（逗号分隔，可选）<input id="up-tags" placeholder="美食, 教程"></label>
+        <label class="chk"><input id="up-fname" type="checkbox"> 用文件名作为标题（文件名有意义时再勾选）</label>
+        <button id="up-go" class="primary" type="button">上传并入库</button>
+        <div id="up-out" class="out" aria-live="polite"></div>
+      </div>
+      <div class="panel">
+        <h2>提交视频地址</h2>
+        <label class="fld">每行一个 http / https 地址<textarea id="url-text" rows="6" placeholder="https://example.com/a.mp4"></textarea></label>
+        <label class="fld">或上传清单（CSV / JSONL，字段 url, title, description, tags）<input id="url-file" type="file" accept=".csv,.jsonl,.txt,.json"></label>
+        <button id="url-go" class="primary" type="button">提交</button>
+        <div id="url-out" class="out" aria-live="polite"></div>
+      </div>
+      <div class="panel">
+        <h2>导入本机目录</h2>
+        <p class="mute">递归扫描目录里的视频，复制到数据目录后入库。只在服务监听本机地址时可用。</p>
+        <label class="fld">目录路径<input id="dir-path" placeholder="E:\videos\campaign"></label>
+        <label class="fld">最多导入条数<input id="dir-limit" type="number" value="200" min="1"></label>
+        <button id="dir-go" class="primary" type="button">导入</button>
+        <div id="dir-out" class="out" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="panel flow">
+      <h2>处理流程</h2>
+      <ol class="steps"><li>落盘 / 下载</li><li>解析（ffprobe：时长、分辨率、编码、音轨）</li><li>抽帧（1 fps，最多 8 帧）＋ 封面</li><li>向量化（画面 · 标题 · 融合，768 维）</li><li>写入向量库，召回立即可用</li></ol>
+    </div>
+  </section>
+
+  <section id="tab-jobs" class="tab" role="tabpanel" hidden>
+    <div class="bar">
+      <label>状态 <select id="job-status"><option value="">全部</option><option>queued</option><option>downloading</option><option>probing</option><option>extracting</option><option>embedding</option><option>ready</option><option>failed</option></select></label>
+      <span id="job-counts" class="mute"></span>
+    </div>
+    <div class="scroll"><table class="jobs"><thead><tr><th>视频</th><th>来源</th><th>状态</th><th>时长</th><th>耗时</th><th>错误</th><th></th></tr></thead><tbody id="job-rows"></tbody></table></div>
+  </section>
+
+  <section id="tab-library" class="tab" role="tabpanel" hidden>
+    <div class="bar"><input id="lib-q" type="search" placeholder="按标题 / 描述 / 来源过滤" aria-label="过滤"><span id="lib-count" class="mute"></span></div>
+    <div id="lib-grid" class="grid"></div>
+    <div class="bar"><button id="lib-more" type="button">加载更多</button></div>
+  </section>
+
+  <section id="tab-search" class="tab" role="tabpanel" hidden>
+    <form id="s-form" class="bar" role="search">
+      <input id="s-q" type="search" placeholder="输入搜索词，例如：做饭 / 小猫 / 篮球" aria-label="搜索词">
+      <select id="s-mode" aria-label="召回方式"><option value="hybrid">混合（BM25＋向量）</option><option value="dense">融合向量</option><option value="visual">仅画面</option><option value="text">仅标题向量</option><option value="bm25">仅 BM25</option></select>
+      <select id="s-dim" aria-label="维度"><option>768</option><option>512</option><option>256</option><option>128</option></select>
+      <button class="primary" type="submit">搜索</button>
+      <label class="btn">以图搜视频<input id="s-img" type="file" accept="image/*" hidden></label>
+    </form>
+    <div id="s-meta" class="mute" aria-live="polite"></div>
+    <div id="s-grid" class="grid"></div>
+  </section>
+
+  <section id="tab-eval" class="tab" role="tabpanel" hidden>
+    <div class="cols2">
+      <div class="panel">
+        <h2>新建评测集</h2>
+        <label class="fld">名称<input id="ev-name" placeholder="例如：2026-10 搜索日志抽样"></label>
+        <label class="fld">上传 JSON / JSONL：每条 {"query": "...", "gold": ["video_id 或 文件名 或 URL"]}<input id="ev-file" type="file" accept=".json,.jsonl"></label>
+        <div class="row"><button id="ev-up" class="primary" type="button">导入</button><button id="ev-auto" type="button">用视频标题自动生成</button></div>
+        <p class="mute">自动生成：以每条视频的标题为查询、该视频为答案。适合评估“仅画面”能否对上文字；在含标题的模式下会因字面相同而虚高。</p>
+        <div id="ev-out" class="out" aria-live="polite"></div>
+      </div>
+      <div class="panel">
+        <h2>运行评估</h2>
+        <label class="fld">评测集<select id="ev-set"></select></label>
+        <label class="fld">维度<select id="ev-dim"><option>768</option><option>256</option><option>128</option></select></label>
+        <button id="ev-run" class="primary" type="button">对全部召回方式运行</button>
+        <div id="ev-res" aria-live="polite"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<dialog id="detail" aria-labelledby="d-title"><div id="d-body"></div></dialog>
+<script src="/static/app.js"></script>
+<script src="/static/library.js"></script>
+<script src="/static/search_eval.js"></script>
+</body>
+</html>

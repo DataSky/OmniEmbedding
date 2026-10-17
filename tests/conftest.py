@@ -1,0 +1,79 @@
+"""测试不需要 GPU，也不下载模型：用一个确定性的假编码器替代 EmbeddingGemma 2。
+假编码器按文字里的关键词 / 画面主色给出向量，足以检验流水线、存储、召回、评估的逻辑是否正确。
+"""
+import hashlib
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+os.environ.setdefault("OMNI_DATA_DIR", tempfile.mkdtemp(prefix="omni_test_"))
+
+COLORS = {"red": (0, 0, 255), "green": (0, 255, 0), "blue": (255, 0, 0)}  # OpenCV 用 BGR
+WORDS = {"红": "red", "red": "red", "绿": "green", "green": "green", "蓝": "blue", "blue": "blue"}
+
+
+def _axis(name):
+    v = np.zeros(768, dtype=np.float32)
+    v[["red", "green", "blue"].index(name)] = 1.0
+    return v
+
+
+class FakeEncoder:
+    model_id = "fake-encoder"
+    device = "cpu"
+    load_s = 0.0
+    loaded = True
+
+    def _text(self, s):
+        v = np.zeros(768, dtype=np.float32)
+        for w, c in WORDS.items():
+            if w in s.lower():
+                v += _axis(c)
+        h = int(hashlib.md5(s.encode()).hexdigest(), 16)
+        v[10 + h % 700] += 0.05  # 让不同文本略有区别
+        return v / max(np.linalg.norm(v), 1e-9)
+
+    def query(self, texts, bs=64):
+        return np.stack([self._text(t) for t in texts])
+
+    def docs(self, titles, texts, bs=64):
+        return np.stack([self._text(f"{a} {b}") for a, b in zip(titles, texts)])
+
+    def _img(self, rgb):
+        m = rgb.reshape(-1, 3).mean(0)  # RGB
+        v = np.zeros(768, dtype=np.float32)
+        v[:3] = [m[0], m[1], m[2]]
+        return v / max(np.linalg.norm(v), 1e-9)
+
+    def videos(self, frame_arrays, bs=4):
+        return np.stack([self._img(f) for f in frame_arrays])
+
+    def images(self, imgs, bs=16):
+        return np.stack([self._img(np.asarray(i.convert("RGB"))) for i in imgs])
+
+
+def make_video(path: Path, color="red", seconds=3, fps=10, size=(160, 96)):
+    w = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+    frame = np.zeros((size[1], size[0], 3), dtype=np.uint8)
+    frame[:] = COLORS[color]
+    for _ in range(seconds * fps):
+        w.write(frame)
+    w.release()
+    return path
+
+
+@pytest.fixture()
+def tmpdir_path(tmp_path):
+    return tmp_path
+
+
+@pytest.fixture()
+def fake_encoder():
+    return FakeEncoder()

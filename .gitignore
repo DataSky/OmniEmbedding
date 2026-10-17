@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# 运行时数据：视频、封面、向量库、日志都不进仓库
+data/
+*.db
+*.db-journal
+*.npy
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.part
+logs/
+
+# 密钥
+.env
+*.token
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
