@@ -13,7 +13,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-os.environ.setdefault("OMNI_DATA_DIR", tempfile.mkdtemp(prefix="omni_test_"))
+# 必须在导入 omniembed 之前强制设置：项目根目录的 .env（真实数据目录、访问密钥、局域网地址）不能影响测试
+os.environ["OMNI_DATA_DIR"] = tempfile.mkdtemp(prefix="omni_test_")
+os.environ["OMNI_API_KEY"] = ""
+os.environ["OMNI_HOST"] = "127.0.0.1"
+os.environ.pop("OMNI_EMBED_DEFAULT_TASK", None)
 
 COLORS = {"red": (0, 0, 255), "green": (0, 255, 0), "blue": (255, 0, 0)}  # OpenCV 用 BGR
 WORDS = {"红": "red", "red": "red", "绿": "green", "green": "green", "蓝": "blue", "blue": "blue"}
@@ -45,6 +49,13 @@ class FakeEncoder:
 
     def docs(self, titles, texts, bs=64):
         return np.stack([self._text(f"{a} {b}") for a, b in zip(titles, texts)])
+
+    def texts(self, texts, prefix="", bs=64):
+        self.last_prefix = prefix
+        return np.stack([self._text(t) for t in texts])
+
+    def count_tokens(self, texts):
+        return sum(len(t) for t in texts)
 
     def _img(self, rgb):
         m = rgb.reshape(-1, 3).mean(0)  # RGB

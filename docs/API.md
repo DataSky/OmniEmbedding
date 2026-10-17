@@ -44,6 +44,22 @@ FastAPI 自带的交互式文档在 `/docs`。
 | ✎ POST | `/api/evalsets` | multipart：`name`，加 `file`（JSON 数组或 JSONL，每条 `{"query", "gold": [...]}`）或 `auto=title`（用视频标题自动生成）。`gold` 可写 video_id、上传时的文件名或 URL |
 | POST | `/api/evalsets/{name}/run?modes=hybrid,visual&dim=768` | 返回每种召回方式的 R@1/5/10、MRR@10、nDCG@10、耗时，以及最多 20 条错例 |
 
+## 向量服务（OpenAI 兼容）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/v1/embeddings`（别名 `/v1/embedding`） | 请求 `{"input": str | [str | {"image": base64/data URL}], "model", "dimensions", "encoding_format", "task"}`；返回 OpenAI 格式 `{"object": "list", "data": [{"object": "embedding", "index", "embedding"}], "model", "usage"}`，另附 `task` 与 `dimensions` |
+| GET | `/v1/models` | 可用模型名：`embeddinggemma-2` 及 `:query` / `:document` / `:similarity` 后缀 |
+
+鉴权：设置了 `OMNI_API_KEY` 时这两个接口都需要 `Authorization: Bearer <key>` 或 `X-API-Key`（向量计算占用 GPU，所以读操作也要求密钥）。
+单次最多 512 条输入；每条文本最多 32,000 字符（超过 8192 token 的部分被截断）；图片 ≤10 MiB，不接受远程图片 URL。
+错误按 OpenAI 格式返回 `{"detail": {"error": {"message", "type"}}}`。不支持 token id 数组输入。
+
+```bash
+curl http://192.168.31.204:8770/v1/embeddings -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"model": "embeddinggemma-2:query", "input": ["how to cook pork belly"], "dimensions": 256}'
+```
+
 ## 示例
 
 ```bash

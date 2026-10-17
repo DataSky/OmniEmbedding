@@ -66,6 +66,30 @@ class Encoder:
     def query(self, texts, bs=64):
         return self._enc([QUERY_PREFIX + t for t in texts], bs)
 
+    def texts(self, texts, prefix="", bs=64, token_budget=32768):
+        """任意前缀的文本编码（/v1/embeddings 用）。
+        按长度排序后分批，每批 token 总数不超过 token_budget：短文本照常大批处理，
+        长文本自动降到小批，避免几条 8k token 的输入把显存占满（实测不限长度时单批可申请 30+ GiB）。"""
+        items = [prefix + t for t in texts]
+        tok = self._model().tokenizer
+        lens = [min(len(tok(t)["input_ids"]), 8192) for t in items]
+        order = sorted(range(len(items)), key=lambda i: lens[i])
+        out = np.zeros((len(items), 768), dtype=np.float32)
+        i = 0
+        while i < len(order):
+            j = i
+            # 同一批按最长的那条补齐，所以用 (条数 × 最长长度) 估算显存
+            while j < len(order) and j - i < bs and (j - i + 1) * lens[order[j]] <= max(token_budget, lens[order[j]]):
+                j += 1
+            idx = order[i:j]
+            out[idx] = self._enc([items[k] for k in idx], len(idx))
+            i = j
+        return out
+
+    def count_tokens(self, texts):
+        tok = self._model().tokenizer
+        return sum(len(tok(t)["input_ids"]) for t in texts)
+
     def docs(self, titles, texts, bs=64):
         return self._enc([doc_text(a, b) for a, b in zip(titles, texts)], bs)
 

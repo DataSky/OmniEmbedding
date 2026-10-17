@@ -20,6 +20,7 @@ from PIL import Image
 from . import __version__, evaluation, media
 from .config import CONFIG
 from .encoder import ENCODER
+from .openai_api import build_router
 from .pipeline import Pipeline
 from .retrieval import DIMS, MODES, Index
 from .store import Store
@@ -37,6 +38,21 @@ app = FastAPI(title="OmniEmbedding", version=__version__)
 def auth(x_api_key: str | None = Header(default=None)):
     if CONFIG.api_key and not secrets.compare_digest(x_api_key or "", CONFIG.api_key):
         raise HTTPException(401, "缺少或错误的 X-API-Key")
+
+
+def embed_auth(authorization: str | None = Header(default=None), x_api_key: str | None = Header(default=None)):
+    """/v1 接口按 OpenAI 习惯认 Authorization: Bearer <key>，也接受 X-API-Key。
+    向量计算占 GPU，设置了密钥时这里读接口也要求密钥。"""
+    if not CONFIG.api_key:
+        return
+    tok = x_api_key or ""
+    if authorization and authorization.lower().startswith("bearer "):
+        tok = authorization[7:].strip()
+    if not secrets.compare_digest(tok, CONFIG.api_key):
+        raise HTTPException(401, {"error": {"message": "invalid api key", "type": "invalid_request_error"}})
+
+
+app.include_router(build_router(embed_auth, lambda: INDEX.enc))
 
 
 @app.on_event("startup")

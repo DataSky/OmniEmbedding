@@ -63,6 +63,33 @@ python -m omniembed stats
 | `OMNI_MAX_UPLOAD_MB` | `500` | 单个视频上限（上传和 URL 下载都适用） |
 | `OMNI_ALLOW_PRIVATE_URLS` | `0` | 默认拒绝下载内网 / 回环地址，防止被用来探测内网 |
 
+## 作为向量服务使用（OpenAI 兼容）
+
+`POST /v1/embeddings`（别名 `/v1/embedding`）与 `GET /v1/models` 和 OpenAI Embeddings 接口格式一致，
+可直接在 openai SDK、LangChain、LlamaIndex、Dify 等里当 "OpenAI Embeddings" 填入：
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://192.168.31.204:8770/v1", api_key="<OMNI_API_KEY>")
+r = client.embeddings.create(model="embeddinggemma-2:query", input=["红烧肉做法", "周末露营"], dimensions=256)
+print(len(r.data[0].embedding))   # 256
+```
+
+EmbeddingGemma 2 要按任务加前缀，通用客户端不会区分查询和文档，所以用下面任一方式指定（优先级从高到低）：
+
+| 方式 | 写法 |
+|---|---|
+| 请求体扩展字段 | `"task": "query"`，可选 `query` / `document` / `similarity` / `classification` / `clustering` / `code` / `qa` / `fact` / `none` |
+| 模型名后缀 | `"model": "embeddinggemma-2:query"` 或 `:document`（只能填模型名的客户端用这个） |
+| 默认 | 环境变量 `OMNI_EMBED_DEFAULT_TASK`，默认 `query` |
+
+做检索时查询用 `:query`、入库文档用 `:document` 效果最好。在 VideoRetrieval（10 万优酷标题）上实测 nDCG@10：
+查询 `:query` + 文档 `:document` 57.9；两边都不区分时，都用 `query` 53.3、都用 `document` 50.0、都用 `similarity` 44.6、都不加前缀 38.9。
+所以不区分时默认 `query`；能区分就一定要区分。
+其他参数：`dimensions`（768 / 512 / 256 / 128，Matryoshka 截断后重新归一化）、`encoding_format: "base64"`（float32 小端）。
+图片输入：`{"input": [{"image": "data:image/jpeg;base64,..."}]}`，与文本在同一向量空间。
+设置了 `OMNI_API_KEY` 时需要 `Authorization: Bearer <key>`（或 `X-API-Key`）。
+
 ## 实测数据
 
 都在一台 RTX 4090（48 GB）+ Windows 11 上测得，bf16。完整评测报告（含文本检索、多模态、量化、短视频专项）见 [docs/EVALUATION.md](docs/EVALUATION.md)。
