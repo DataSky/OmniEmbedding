@@ -20,7 +20,17 @@ logs/
 
 # 密钥
 .env
+.env.*
+!.env.example
 *.token
+*.key
+*.pem
+
+# 报告构建、离线导出与本机发布元数据
+node_modules/
+dist/
+.data-app-offline/
+.openai/
 
 # 编辑器
 .vscode/

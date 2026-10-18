@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EmbeddingGemma 2 · AutoDL 使用与运维指南</title>
+<style>
+:root{--ink:#182b3c;--muted:#526678;--brand:#006b65;--paper:#fff;--bg:#f1f5f6;--line:#d8e2e7}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.8 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1130px;margin:36px auto;background:var(--paper);padding:48px 56px 80px;border-radius:14px;box-shadow:0 4px 24px #182b3c0b}header{border-top:7px solid var(--brand);padding-top:22px}h1{font-size:34px;line-height:1.4;margin:8px 0 16px}h2{font-size:25px;margin:48px 0 18px;padding-top:15px;border-top:1px solid var(--line);scroll-margin-top:20px}h3{font-size:19px;margin:26px 0 10px}p{margin:12px 0}.eyebrow,.meta{color:var(--muted);font-size:14px}.eyebrow{letter-spacing:2px;font-weight:700}.lead{font-size:19px}.note{background:#ecf6f4;border-left:4px solid var(--brand);padding:14px 20px;margin:22px 0}.caution{background:#fff5e5;border-color:#ba7600}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{border:1px solid var(--line);border-radius:8px;padding:16px 20px}.card strong{display:block;color:var(--brand);font-size:19px}a{color:#006c88;overflow-wrap:anywhere}nav{background:#f3f7f8;padding:18px 24px;margin:26px 0;border-radius:8px}nav ol{columns:2;margin:0;padding-left:24px}nav li{padding:3px 0;break-inside:avoid}table{width:100%;border-collapse:collapse;font-size:14px;margin:18px 0;table-layout:auto}th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:#edf3f5}code{background:#eef2f4;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere;font:13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}pre{position:relative;background:#132b3b;color:#eff7fa;border-radius:8px;padding:20px;overflow:auto;white-space:pre;font:13px/1.75 ui-monospace,SFMono-Regular,Consolas,monospace}pre code{background:none;color:inherit;padding:0;overflow-wrap:normal}.copy{float:right;border:1px solid #6f8b9b;background:#284555;color:#fff;border-radius:4px;font:12px system-ui;padding:3px 9px;cursor:pointer;margin:-5px -5px 8px 12px}.small{font-size:14px;color:var(--muted)}.path{word-break:break-all}ul,ol{padding-left:24px}li{margin:5px 0}footer{margin-top:48px;border-top:1px solid var(--line);padding-top:20px;color:var(--muted);font-size:13px}.pill{display:inline-block;padding:2px 10px;border-radius:20px;background:#e4f3ef;color:#006b65;font-weight:650;font-size:13px}.table-wrap{overflow:auto}@media(max-width:760px){main{margin:0;padding:24px 18px;border-radius:0}h1{font-size:28px}.grid{grid-template-columns:1fr}nav ol{columns:1}table{min-width:580px}.table-wrap{overflow:auto}}@media print{body{background:white}main{padding:0;box-shadow:none;max-width:none;margin:0}nav,.copy{display:none}h2{break-after:avoid}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f5f6;color:#182b3c;break-inside:avoid}a{color:inherit}table{font-size:11px}h1{font-size:27px}.grid{display:block}.card{margin:10px 0}footer{font-size:10px}}
+</style>
+<main>
+<header>
+<div class="eyebrow">OMNIEMBEDDING / OPERATIONS</div>
+<h1>EmbeddingGemma 2<br>AutoDL 使用与运维指南</h1>
+<p class="lead">保留已安装环境和模型，直接启动；用统一队列控制请求，把恢复能力做成可检验的交付物。</p>
+<p class="meta">版本：2026-10-18 · 当前部署：单张 RTX 5090 32GB · 本文不包含账户 Token、服务 Key 或 SSH 密码</p>
+</header>
+<div class="note"><strong>先看结论：</strong>可以保存，且已有一份状态为 <code>finished</code> 的 AutoDL 私有镜像。当前环境也已另做不含凭据的应用归档。日常开机不应再执行安装脚本；只启动已有 <code>run-autodl.sh</code>。镜像省去安装与权重下载，但每次进程启动仍需把权重加载进显存并预热。</div>
+<nav aria-label="指南目录"><ol>
+<li><a href="#inventory">当前服务与交付清单</a></li><li><a href="#quickstart">五分钟开始调用</a></li>
+<li><a href="#save">镜像与环境如何保存</a></li><li><a href="#restore">恢复、新建与离线验收</a></li>
+<li><a href="#lifecycle">启动、停止、重启与开机自启</a></li><li><a href="#monitor">日常监控与故障处理</a></li>
+<li><a href="#api">准确的调用接口</a></li><li><a href="#efficiency">并发、批处理与高效检索</a></li>
+<li><a href="#integration">接入现有应用与检索流程</a></li><li><a href="#keys">密钥管理与版本升级</a></li>
+<li><a href="#acceptance">恢复验收与未验证边界</a></li><li><a href="#sources">依据与随附文件</a></li>
+</ol></nav>
+
+<h2 id="inventory">1. 当前服务与交付清单</h2>
+<div class="table-wrap"><table><tr><th>项目</th><th>当前值 / 用途</th></tr>
+<tr><td>AutoDL 实例</td><td><code>pro-79222bf22ba5</code>，北京 bj-B2；属于容器实例 Pro</td></tr>
+<tr><td>模型</td><td><code>google/embeddinggemma-2</code><br>固定 revision：<code>914f7f89142e33e77833254d9c9b90c3cef7303b</code></td></tr>
+<tr><td>当前公网地址</td><td><code>https://u151984-79222bf22ba5.bjb2.seetacloud.com:8443</code><br>基址后追加接口路径；新实例需重新取得地址。</td></tr>
+<tr><td>运行方式</td><td>CUDA / BF16，单个 uvicorn worker，内部端口6006；由现有监督进程管理。</td></tr>
+<tr><td>服务根目录</td><td><code>/root/omniembedding-service</code>；环境在 <code>.conda/</code>，权重在 <code>cache/huggingface/</code>，均在实际系统盘挂载下。</td></tr>
+<tr><td>本机调用资料</td><td><code>data/autodl/endpoint.json</code>：地址与模型信息；<br><code>data/autodl/inference.key</code>：独立推理密钥，权限600。只读文件使用，勿粘到聊天或版本库。</td></tr>
+<tr><td>现有私有镜像</td><td><code>image-3e44b71863</code> / OmniEmbedding-Gemma2-20261018；2026-10-18 12:06保存，查询状态 <code>finished</code>，平台报告13,754,777,600字节。当前实例已从该镜像恢复；它不包含本文后来新增的运维脚本。</td></tr>
+<tr><td>计费</td><td>当前GPU ¥2.88/小时，系统盘基础费 ¥0.10/天；连续开机24小时约 ¥69.22，按当前单价估算。停止模型进程仍计GPU费；云实例关机与停止服务是两件事。</td></tr>
+</table></div>
+<p class="small">实例、镜像、健康状态的现场记录见 <a href="../data/autodl-guide/platform-images.json">镜像查询结果</a>、<a href="../data/autodl-guide/live-inventory.json">运行目录核验</a>。费用会变化，操作时以控制台实时价格为准。Pro系统盘计费与数据保留规则见<a href="https://www.autodl.com/docs/instance_pro_data/">官方说明</a>。</p>
+<p class="small">本文中的 <code>data/</code> 链接是本机部署与验收时生成的私有记录，不随Git仓库发布；克隆仓库后须按自己的部署生成。文中实例ID、镜像ID与现场状态是2026-10-18的记录，不保证在其他账户可访问或代表当前在线状态。</p>
+<div class="grid"><div class="card"><strong>不重复安装</strong>开机 / 进程重启使用现有runner；首次部署或明确缺文件时才使用bootstrap。</div><div class="card"><strong>不盲目加并发</strong>这个实例只有一个推理槽；统一队列总并发设1，再用批处理提高入库吞吐。</div></div>
+
+<h2 id="quickstart">2. 五分钟开始调用（在你的本机）</h2>
+<p>下列命令在仓库根目录执行。轻量示例只需要Python 3.11以上和httpx，不需要在调用方下载模型或安装PyTorch。已有可用httpx环境可直接使用；新建专用环境只需做一次。</p>
+<pre><code>python3 -m venv .venv-client
+.venv-client/bin/python -m pip install httpx==0.28.1
+
+export OMNI_INFERENCE_URL='https://u151984-79222bf22ba5.bjb2.seetacloud.com:8443'
+export OMNI_INFERENCE_KEY_FILE="$PWD/data/autodl/inference.key"
+chmod 600 "$OMNI_INFERENCE_KEY_FILE"
+
+.venv-client/bin/python docs/examples/embeddinggemma_client.py health
+.venv-client/bin/python docs/examples/embeddinggemma_client.py probe
+.venv-client/bin/python docs/examples/embeddinggemma_client.py text \
+  --text '厨房里正在切菜的画面'</code></pre>
+<p>默认打印成功、维度、模型与版本等摘要，已校验向量行数、有限值、单位范数。要保存真实向量，把全局选项放在子命令之前；输出文件使用600权限且拒绝覆盖已有文件。</p>
+<pre><code>.venv-client/bin/python docs/examples/embeddinggemma_client.py \
+  --output /tmp/query-embedding.json text --text '海边日落'
+
+.venv-client/bin/python docs/examples/embeddinggemma_client.py text \
+  --input-type document --text '锅中加入番茄与鸡蛋，快速翻炒。' --title '番茄炒蛋'
+
+.venv-client/bin/python docs/examples/embeddinggemma_client.py \
+  --dimensions 768 image /absolute/path/photo.jpg
+
+.venv-client/bin/python docs/examples/embeddinggemma_client.py video \
+  /absolute/path/frame01.jpg /absolute/path/frame02.jpg</code></pre>
+<p class="small">敏感正文建议用 <code>text --text-file /absolute/path/query.txt</code>，避免命令历史记录正文。视频输入是图片帧，MP4须先在调用端解码抽帧。示例脚本支持最多3次仅针对429的尝试，遵守Retry-After并增加随机等待；网络超时不会自动重放。<code>--timeout</code>覆盖排队、HTTP与重试等待，不包括此前本地文件读取、此后结果校验与写文件。</p>
+
+<h3>把本地MP4准备成可调用的帧</h3>
+<p>新增<a href="examples/prepare_video_frames.py">本地抽帧工具</a>默认从短视频均匀取最多8个不同真实帧，按时间排序、保持比例缩至长边最多512像素，再输出JPEG与采样manifest。文件不上传时也能先检查抽帧效果。以下固定依赖组合已在Python3.12环境验证；若第2节的环境使用Python3.11或3.12，可在其中一次安装。其他Python版本请使用已有兼容项目环境或另建Python3.12环境，避免强行混装旧NumPy。</p>
+<pre><code>set -e
+.venv-client/bin/python -m pip install numpy==1.26.4 opencv-python-headless==4.11.0.86 httpx==0.28.1
+
+# 选择尚不存在的新目录；输入已经下载到本地的短视频片段
+.venv-client/bin/python docs/examples/prepare_video_frames.py \
+  /absolute/path/short-clip.mp4 \
+  --output-dir "$PWD/data/prepared-video/clip001"
+
+# 两位序号文件名会按采样顺序展开；不足8帧时只发送实际帧
+.venv-client/bin/python docs/examples/embeddinggemma_client.py video \
+  "$PWD/data/prepared-video/clip001"/frame*.jpg</code></pre>
+<p class="small">沿用第2节的URL与Key文件变量。manifest记录原视频哈希、帧索引、名义时间、缩放策略和帧哈希；变帧率视频的索引/FPS不保证精确时间戳。长视频先分镜头或短片段。默认8帧只与质量评测的帧数一致，不代表所有预处理完全相同，调整策略后仍需验收召回。</p>
+
+<h2 id="save">3. 镜像与环境如何保存</h2>
+<div class="table-wrap"><table><tr><th>交付物</th><th>包含 / 不包含</th><th>适合什么情况</th></tr>
+<tr><td>AutoDL私有系统镜像<br><code>image-3e44b71863</code></td><td>系统盘环境、模型缓存、代码及当时盘上的凭据；不保存GPU显存与进程，也不保证新实例的公网地址或平台开机配置。</td><td>平台内最快恢复与新建；保持私有。现有镜像已用于恢复当前实例。</td></tr>
+<tr><td>本次应用环境归档<br><a id="archive-link" href="../data/autodl-guide/DELIVERY.json">备份信息与校验清单</a></td><td>完整Conda前缀、模型仓库snapshots+blobs、运行源码、runner、运维脚本、逐文件清单；排除Key、HF登录Token、日志、PID、评测素材与安装临时缓存。</td><td>异地备份、同路径兼容Linux环境的应用恢复；不是可导入AutoDL的系统镜像，也不是Docker镜像。</td></tr>
+<tr><td>原来的22KB源码包<br><code>data/autodl/embeddinggemma2-autodl.tar.gz</code></td><td>只有白名单源码；没有完整Python环境和模型权重。</td><td>首次安装材料或源码检查，不能代替上面两种环境备份。</td></tr>
+</table></div>
+<p>镜像保存覆盖系统盘；当前服务全部放在 <code>/root/omniembedding-service</code>，避免模型缓存散落到别处。Pro官方说明只有系统盘，因此不要照搬普通实例关于 <code>/root/autodl-tmp</code> 的独立数据盘规则；本服务没有依赖该目录。<a href="https://www.autodl.com/docs/image/">官方镜像说明</a>、<a href="https://www.autodl.com/docs/instance_pro_data/">Pro存储说明</a>。</p>
+<h3>镜像保留与关机规则</h3>
+<p>2026-10-18核对官方帮助文档：保存成功的自定义镜像不会因源实例关机而丢失，可用于长期留存环境和创建新实例，但不是无条件永久保存。镜像是保存当时系统盘的快照，后续新增或修改的文件不会自动更新到旧镜像中。</p>
+<ul><li>镜像计费按账户全部镜像的总容量计算，30GB以内免费，超出部分为0.01元/GB/日。本镜像平台报告约13.75GB，是否收费还需合并其他镜像容量。</li><li>镜像计费条款规定：账户连续3个月未登录，或欠费超过50元，平台保留删除数据的权利；并非达到条件必然立即删除。不要把平台镜像作为唯一长期备份。</li><li>Pro实例连续关机60天会被释放并清空实例数据；普通容器实例为15天。这是实例的数据保留周期，独立保存的镜像按镜像条款管理。</li><li>Pro关机后仍有系统盘费用，停止模型进程也不会停止GPU计费。长期不用时应先验证镜像和独立备份，再决定实例的保留方式。</li></ul>
+<p class="small">依据：<a href="https://www.autodl.com/docs/image/">镜像文档</a>、<a href="https://www.autodl.com/docs/price/">充值与计费中的镜像计费</a>、<a href="https://www.autodl.com/docs/instance_pro_data/">Pro数据保留及磁盘计费</a>。后续以官方最新条款与控制台为准。</p>
+<h3>应用备份：保持服务在线</h3>
+<p>本次新增的备份工具只读取白名单运行文件。创建期间不要升级依赖、修改源码或更新模型；它会核对前后文件状态，但这不是业务数据库的一致性快照。本服务的应用数据库、检索索引或外部媒体不在该归档内，业务系统须另做备份。</p>
+<pre><code># 以下在 AutoDL 实例内执行；归档不要放进服务根目录
+mkdir -p /root/omniembedding-backups
+chmod 700 /root/omniembedding-backups
+/root/omniembedding-service/.conda/bin/python \
+  /root/omniembedding-service/scripts/autodl_backup.py create \
+  --output /root/omniembedding-backups/embeddinggemma2-runtime.tar.gz
+
+/root/omniembedding-service/.conda/bin/python \
+  /root/omniembedding-service/scripts/autodl_backup.py verify \
+  /root/omniembedding-backups/embeddinggemma2-runtime.tar.gz</code></pre>
+<p>工具会生成归档、SHA-256侧文件和逐文件manifest。务必另存一份到本机或你控制的对象存储；只把备份留在同一实例里，实例释放或账号不可用时仍然拿不到。HF缓存中的相对链接必须与 <code>blobs</code> 一起保留，不能只复制 <code>model.safetensors</code>。</p>
+<h3>更新平台系统镜像：安排维护窗口</h3>
+<ol><li>先备份并校验当前环境，暂停新业务入队，等待已接受的任务完成。</li><li>通用官方镜像流程要求实例关机后保存。Pro保存API没有明确说明是否允许热保存，本轮没有冒险调用运行中的保存操作。</li><li>在控制台关机，选择“保存镜像”，写入包含模型revision与日期的版本名；等待镜像状态变成 <code>finished</code>。</li><li>开机后执行就绪、真实推理和公网验收，再恢复业务队列；新建实例要重新取得地址并配置6006映射与启动命令。</li><li>验证新版本后再考虑清理旧镜像；保留至少一个已知可恢复版本。</li></ol>
+<div class="note caution">当前按量GPU不能保证随时可重新分配，之前已出现5090暂时无库存。保存镜像也不会锁定GPU库存。为了本次写指南和打包，无需关闭当前在线实例；最新平台系统快照仍待维护窗口。</div>
+<p class="small">Pro专用API：<code>POST /api/v1/dev/instance/pro/image/save</code>，JSON <code>{"instance_uuid":"pro-79222bf22ba5","image_name":"自定义版本名"}</code>；返回image_uuid后，用 <code>POST /api/v1/dev/instance/pro/image/private/list</code> 查询完成状态。这是维护窗口操作说明，本次没有执行保存或关机。依据：<a href="https://www.autodl.com/docs/instance_pro_api/">Pro API</a>。</p>
+
+<h2 id="restore">4. 恢复、新建与离线验收</h2>
+<h3>优先：从现有私有镜像新建</h3>
+<p>在AutoDL控制台从私有镜像选择上述image ID，选择兼容的NVIDIA GPU与驱动。当前环境是Linux x86_64、Ubuntu20.04、Python3.12、PyTorch2.11.0+cu128、torchvision0.26.0+cu128；调度驱动应支持CUDA12.8以上。私有镜像已有依赖和权重，直接启动即可。API创建时对应驱动下限 <code>cuda_v_from:128</code>、5090规格 <code>5090-p</code>；费用先核对，不要默认新规格也与当前单价相同。</p>
+<p>旧平台镜像中还没有本次新增的ops/backup脚本；可上传这两个小文件再用下节命令，也可以直接使用镜像中已有runner。克隆实例会继承旧Key，按需要更换后启动。镜像中的旧PID文件不是进程存在的证明。</p>
+<h3>备用：从本次应用归档恢复</h3>
+<p>准备相容的Linux基础环境和NVIDIA驱动，上传归档与同名的 <code>.manifest.json</code>、<code>.sha256</code> 两个侧文件，单独上传 <code>scripts/autodl_backup.py</code> 作为恢复工具。基础系统的 <code>python3</code>（至少3.8）运行该工具；它使用标准库。目标必须严格为 <code>/root/omniembedding-service</code> 且尚不存在，工具拒绝覆盖任何现有部署。不要为通过检查而直接删除旧目录；确认停服后先把旧目录保留到别的位置。</p>
+<pre><code># 在新的、兼容的 AutoDL/Linux 实例执行，先验证再恢复
+python3 /root/autodl_backup.py verify \
+  /root/omniembedding-backups/embeddinggemma2-runtime.tar.gz
+
+python3 /root/autodl_backup.py restore \
+  /root/omniembedding-backups/embeddinggemma2-runtime.tar.gz \
+  --new-key
+
+# 新Key只写入服务器 inference.key；用安全文件传输取得后更新调用方
+/root/omniembedding-service/.conda/bin/python \
+  /root/omniembedding-service/scripts/autodl_ops.py preflight
+
+/root/omniembedding-service/.conda/bin/python \
+  /root/omniembedding-service/scripts/autodl_ops.py start</code></pre>
+<p>归档不含服务Key；<code>--new-key</code>生成新Key且不显示内容。若需沿用原Key，不传该选项，启动前通过安全文件传输放回 <code>inference.key</code> 并设置600权限。恢复工具只恢复文件、不会启动服务或改变计费实例。</p>
+<p>Conda环境有固定绝对前缀，归档按原目录恢复，不支持任意改目录。它不包含宿主机驱动或完整OS；不能拿到Mac/Windows直接运行，也不承诺不同glibc/架构可用。AutoDL当前不支持把这种应用tar包直接导入为自定义系统镜像。<a href="https://www.autodl.com/docs/image/">官方说明</a>。</p>
+<h3>避免启动时访问下载站</h3>
+<p>本次已单独验证：已有缓存可在阻断外部socket连接的CPU进程中离线加载模型并生成一条文本向量；该检查没有重启线上GPU服务。下列离线入口适合缓存预检通过后的下一次计划启动。严格GPU冷启动、完整恢复及全部模态离线验收仍需维护窗口，不能用CPU检查替代。</p>
+<pre><code># 显式离线启动；服务已在线时不会将现有进程切换成离线模式
+/root/omniembedding-service/.conda/bin/python \
+  /root/omniembedding-service/scripts/autodl_ops.py start --offline-start</code></pre>
+<p class="small">该模式设置 <code>HF_HUB_OFFLINE=1</code>、<code>TRANSFORMERS_OFFLINE=1</code>、<code>OMNI_AUTODL_NETWORK_TURBO=0</code>。缓存缺失时应明确失败；不要自动退回下载或换模型。默认旧runner会初始化平台网络加速，且不默认强制离线。</p>
+
+<h2 id="lifecycle">5. 启动、停止、重启与开机自启</h2>
+<p>以下在AutoDL实例内执行；使用已有环境的绝对Python路径，不需要 <code>conda activate</code>，不需要AutoDL账户Token。新增工具核对PID、进程目录与监督锁，减少误杀旧PID或重复占用6006的风险。</p>
+<pre><code>cd /root/omniembedding-service
+
+# 查看本机进程、监听与就绪摘要，不打印密钥
+.conda/bin/python scripts/autodl_ops.py status
+
+# 检查环境与本地模型缓存，不联网下载
+.conda/bin/python scripts/autodl_ops.py preflight
+
+# 后台启动已有runner；已在运行时不会叠加一个worker
+.conda/bin/python scripts/autodl_ops.py start
+
+# 计划停服：先暂停调用端队列，再停止监督与模型子进程
+.conda/bin/python scripts/autodl_ops.py stop
+
+# 查清故障或完成明确变更后重启；会短暂中断服务
+.conda/bin/python scripts/autodl_ops.py restart</code></pre>
+<p><strong>不要把这一条当成日常启动命令：</strong><code>bash scripts/autodl_bootstrap.sh</code>。它属于安装入口，每次会进行16GiB空闲盘检查、调用pip安装和依赖检查、重写runner；相同依赖通常不会重下载，但缺失或变化仍可能联网，镜像恢复后也可能因空间预检被挡住。</p>
+<h3>无新增脚本时，直接启动旧runner</h3>
+<pre><code>cd /root/omniembedding-service
+mkdir -p logs run
+nohup bash ./run-autodl.sh &gt;&gt; logs/supervisor.log 2&gt;&amp;1 &lt; /dev/null &amp;</code></pre>
+<p>runner用文件锁保证单监督进程；“发起启动”不等于模型已就绪。先确认HTTP开始监听，再运行完整验收。</p>
+<h3>平台开机命令</h3>
+<p>在控制台开机命令中填写下面内容；命令应使用原目录runner，不调用安装入口。现有部署记录显示曾配置开机命令，但本轮没有关机重启验证控制面配置是否仍生效。</p>
+<pre><code>cd /root/omniembedding-service &amp;&amp; mkdir -p logs run &amp;&amp; exec bash ./run-autodl.sh</code></pre>
+<p>下一次计划开机若使用Pro API，可在 <code>POST /api/v1/dev/instance/pro/power_on</code> 中显式传入该 <code>start_command</code>，并传 <code>payload:"gpu"</code>。其执行失败不会自动关闭计费实例，因此开机后必须验收。账户API使用原始开发者Token作为Authorization；它与推理接口的Bearer Key不同。<a href="https://www.autodl.com/docs/instance_pro_api/">官方Pro API</a>。</p>
+<div class="note caution">停服或重启时先暂停业务接单并排空本地队列。监督进程收到TERM会结束子进程，最多等待15秒后强制结束仍存活子进程，因此可能中断在途长请求；不能把直接restart当作无损热切换。</div>
+
+<h2 id="monitor">6. 日常监控与故障处理</h2>
+<div class="table-wrap"><table><tr><th>检查</th><th>建议频率 / 行为</th><th>它能说明什么</th></tr>
+<tr><td><code>GET /health/live</code></td><td>30–60秒；无需鉴权</td><td>HTTP进程可响应；不能证明模型就绪。</td></tr>
+<tr><td><code>GET /health/ready</code></td><td>30秒，Bearer；连续3次失败再告警</td><td>200 + ready=true + status=ok；检查model/revision/device/dtype/boot_id。不会实际跑模型。</td></tr>
+<tr><td><code>POST /health/inference</code></td><td>启动/恢复后，以及业务低谷每5分钟；纳入统一队列</td><td>真实推理与768维、有限值和单位范数检查；占推理槽，忙时429不能直接认定模型故障。</td></tr>
+<tr><td>调用端指标</td><td>按1分钟窗口记录</td><td>成功率、429、5xx、超时、排队时长、模型服务耗时和总延迟，按模态/批量/文本长度分别看。</td></tr>
+<tr><td>资源 / 预算</td><td>每分钟采样、每日核账；阈值是初始运维建议</td><td>系统盘&lt;20%提示、&lt;10%告警；显存异常增长、监督退出、boot_id频繁变化、费用与余额异常需处理。</td></tr>
+</table></div>
+<pre><code># 仅在服务器运维会话检查，日志按私有资料保存
+tail -n 80 /root/omniembedding-service/logs/inference.log
+tail -n 80 /root/omniembedding-service/logs/supervisor.log
+df -h /root/omniembedding-service
+nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu --format=csv</code></pre>
+<p><code>inference.log</code>约10MiB主文件加2份轮转备份；<code>supervisor.log</code>当前未轮转，需定期查看体积。监督每10秒检查本机ready；连续3次无法访问、模型degraded/stalled、加载超时或子进程退出会尝试拉起。15分钟内第5次失败后监督自己退出，需人工读日志处理，不能承诺无限自愈。不要删除运行中的lock文件，也不要只杀uvicorn子进程做计划停服。</p>
+<div class="table-wrap"><table><tr><th>现象</th><th>处理顺序</th></tr>
+<tr><td>401</td><td>检查是否用了独立推理Key、Bearer头、文件600权限；修改Key文件后必须重启服务与更新客户端。不要拿账户JWT代替。</td></tr>
+<tr><td>429 / Retry-After:2</td><td>先看是否多个进程同时调用，统一实例级队列总在途设1；遵守等待并有界重试。不要先加worker或重启。</td></tr>
+<tr><td>422 / 415 / 413 / 400</td><td>核对下节真实协议、字段名、图片格式/帧数/像素/字节限制；修输入后再调用。禁止原样循环重试。</td></tr>
+<tr><td>503 loading</td><td>检查日志并等待模型加载，900秒是配置预算而非必然耗时。不要边加载边重复安装或启动多个服务。</td></tr>
+<tr><td>503 degraded/stalled / OOM</td><td>暂停任务，保留故障时间与日志摘要，检查显存与异常输入，等待监督恢复或确认后重启；重启后真实探针再放量。</td></tr>
+<tr><td>公网超时 / 502，但本机ready通过</td><td>查6006映射、当前公网域名、平台代理和网络；不要因此重装模型。客户端断开不保证GPU计算被取消。</td></tr>
+<tr><td>本机6006无监听</td><td>先看监督是否退出，再看日志、Key权限、缓存和磁盘；preflight通过后start。完整验证器遇TCP失败会直接失败，不能依赖其ready-timeout等待端口出现。</td></tr>
+<tr><td>实例关机后无法开机</td><td>查GPU库存与余额；镜像只能保环境、不能保证算力。换规格前确认兼容驱动与实时价格，用户允许上限¥8/小时。</td></tr>
+</table></div>
+<p class="small">本文给出监控频率与阈值建议，没有创建未来自动巡检或告警任务。应用现有ServiceHealth监控不是AutoDL实例电源开关。</p>
+
+<h2 id="api">7. 准确的调用接口</h2>
+<p>公网请求需HTTPS。除live外，使用 <code>Authorization: Bearer &lt;inference.key内容&gt;</code>。这是独立推理服务 <code>omniembed.inference:create_app</code>，不是带数据库、入库和检索的业务API。</p>
+<div class="table-wrap"><table><tr><th>路由</th><th>请求</th><th>返回</th></tr>
+<tr><td><code>POST /v1/embeddings</code></td><td>application/json；input字符串或列表，input_type=query或document，dimensions可选，默认768；document可附等长titles</td><td>每条文本一条向量；顺序由data[].index标识。</td></tr>
+<tr><td><code>POST /v1/embeddings/image?dimensions=768</code></td><td>multipart/form-data，单字段 <code>file</code>；JPEG/PNG/WebP静态图</td><td>一张图一条向量。</td></tr>
+<tr><td><code>POST /v1/embeddings/video?dimensions=768</code></td><td>multipart/form-data，重复字段 <code>files</code>；1–8张同宽高、按时间顺序排列的静态帧</td><td>整段帧序列一条向量；不是每帧一条。</td></tr>
+</table></div>
+<pre><code>{
+  "input": ["锅中加入番茄与鸡蛋，快速翻炒。", "沿着海边步道观看日落。"],
+  "input_type": "document",
+  "titles": ["番茄炒蛋", "海滨日落"],
+  "dimensions": 768
+}</code></pre>
+<p>查询传 <code>input_type:"query"</code>，素材描述或正文入库传 <code>document</code>；前缀由服务自动添加，调用方传原文。query不能带titles，连 <code>titles:null</code> 也应省略。当前接口不接受 <code>model</code>、<code>task</code>、<code>encoding_format</code> 等额外字段，没有 <code>/v1/models</code> 或单数 <code>/v1/embedding</code>，也不使用 <code>X-API-Key</code>。不能直接照抄仓库业务API文档或假定完全兼容OpenAI SDK。</p>
+<div class="table-wrap"><table><tr><th>输入</th><th>边界</th></tr>
+<tr><td>文本</td><td>每次最多16条；每条8192字符、每标题1024字符、整批正文+标题合计32768字符；JSON请求体最多262144字节。这里按字符限制，不等于模型的8192 token窗口。</td></tr>
+<tr><td>图片</td><td>单文件最多10MiB，最多16,000,000像素；不接受动图、URL或base64 JSON直传。</td></tr>
+<tr><td>视频画面</td><td>1–8帧，必须同宽高；总文件最多32MiB，总像素最多32,000,000。不要把MP4文件当file上传；当前不支持音频。</td></tr>
+<tr><td>输出维度</td><td>128 / 256 / 512 / 768。服务从原生768维截断后重新L2归一化；query、文档、图片与视频比较时必须使用相同模型版本、维度和预处理约定。</td></tr>
+</table></div>
+<p>成功响应包含 <code>model</code>、<code>model_revision</code>、<code>dimensions</code>、<code>boot_id</code> 和 <code>data:[{index,embedding}]</code>。boot_id用于识别模型进程重启，不是机器ID，也不应作为业务内容缓存键。</p>
+
+<h2 id="efficiency">8. 并发、批处理与高效检索</h2>
+<div class="note"><strong>默认配置：</strong>实例级 <code>max_inflight=1</code>；在线查询优先，后台入库让出队列；文档批量先用8条、按长度分桶，再根据实际延迟尝试16条；默认768维。不要把更多HTTP并发等同于更多GPU吞吐。</div>
+<p>服务只有一个GPU推理槽，推理锁忙时直接429，不在该锁上排队；HTTP接收、解码与线程池仍可能等待。示例客户端仅保证<strong>同一个对象</strong>串行；现有RemoteEncoder也只锁同一个适配器对象。多个进程、容器或客户端各自设并发1仍会互相碰撞。生产应让在线查询、批量入库、图片/视频与真实推理探针共用一个调度器。</p>
+<div class="table-wrap"><table><tr><th>场景</th><th>建议设置</th><th>实测依据 / 使用边界</th></tr>
+<tr><td>在线短文本查询</td><td>batch1；全局并发1；10–12QPS只作为灰度起点；设置有界队列、排队截止时间与超载拒绝</td><td>固定约16字符模板的20秒测试；22RPS时虽然无429，实际吞吐约18.59/s，端到端p95约3.30s，说明请求已在客户端排队。</td></tr>
+<tr><td>后台文档入库</td><td>并发1，批量8–16，按长度分桶且满足整批字符/字节限制；查询到来后暂停发下一批</td><td>1024字符文档batch16约68.67条/s；不能推成所有文本长度都最优。HTTP批量16，模型内部微批4。</td></tr>
+<tr><td>图片 / 视频</td><td>每次一图或一段帧序列，先统一尺寸；可从2–4帧试验，按任务质量需要增至8帧</td><td>固定512×288 JPEG短窗口：图片11.71请求/s、2帧视频9.38/s、8帧视频5.94/s；不含下载、抽帧与完整业务链路。真实视频质量评测使用8帧，减少帧数前须复测召回。</td></tr>
+<tr><td>混合在线流量</td><td>按模态设置成本预算和队列；用实际混合比例重新测到达率</td><td>单在途闭环30分钟，19,553次主请求均成功，约10.86请求/s；固定素材、无到达率积压，不代表10.86QPS通用SLA。</td></tr>
+<tr><td>降低索引成本</td><td>先保持768；对自有数据验收后考虑512</td><td>512维裸float32向量少1/3，但COCO双向nDCG下降约0.57/0.80个百分点。维度缩小主要省存储/传输，不等比例省GPU推理；128维不建议默认。</td></tr>
+</table></div>
+<p>短query并发2的原始压测出现约78.05%429，吞吐没有改善；加并发是在增加碰撞。队列也不能无限大，建议从最多8个待处理请求起步，并依据业务容忍的排队时间调整；超载应返回可解释的限流或稍后重试。重试总预算包含排队、网络和等待，避免每次尝试重新计满120秒。</p>
+<h3>把GPU花在真正需要重新编码的内容上</h3>
+<ul><li><strong>入库增量化：</strong>缓存键包含内容哈希、model ID、revision、角色query/document、标题、输出维度；媒体还应包含缩放、抽帧时间戳与策略版本。相同内容不重复编码。</li><li><strong>查询不重复入库：</strong>文档、图片、视频向量先保存到索引；每次搜索只编码查询，再检索已有向量。单位向量可用内积进行余弦排序。</li><li><strong>长视频分段：</strong>按镜头或固定短片段建立向量，存source_id、起止时间和抽帧位置；不要用整部视频的8张帧代表所有内容。返回片段后再定位播放。</li><li><strong>调用与计算分开计量：</strong>分别记录排队、下载、抽帧、编码、索引检索与重排耗时。只优化HTTP延迟容易错过主要成本。</li><li><strong>需求超出单实例再扩容：</strong>持续队列积压时，可评估增加独立副本或实现并验证动态批处理；每个副本仍保留单推理槽。不要直接把当前uvicorn workers改为4，它会复制模型并破坏当前容量假设。</li></ul>
+<p class="small">性能数字与限制来自<a href="../data/autodl-evaluation-20261018/REPORT.html">已完成的系统评测</a>。30分钟稳定性没有观察到重启或向量漂移，不代表24小时可用性承诺；中文图片/真实视频检索业务质量仍需自有样本验收。不要直接默认启用固定RRF融合，该组合在已测部分任务反而下降。</p>
+
+<h2 id="integration">9. 接入现有应用与检索流程</h2>
+<h3>当前OmniEmbedding业务服务</h3>
+<p>现有业务代码已有 <code>RemoteEncoder</code>，优先复用。为业务进程设置以下变量后重启业务进程，它会从独立Key文件读取并调用远端；它固定768维，不会自动退回本机下载模型。</p>
+<pre><code>unset OMNI_INFERENCE_URL  # 显式URL优先于endpoint.json；本段选择由文件提供地址
+export OMNI_ENCODER_BACKEND=remote
+export OMNI_MODEL=google/embeddinggemma-2
+export OMNI_MODEL_REVISION=914f7f89142e33e77833254d9c9b90c3cef7303b
+export OMNI_INFERENCE_ENDPOINT_FILE="$PWD/data/autodl/endpoint.json"
+export OMNI_INFERENCE_KEY_FILE="$PWD/data/autodl/inference.key"
+export OMNI_INFERENCE_TIMEOUT_S=120</code></pre>
+<p>这些是调用方配置；AutoDL上的推理进程继续用 <code>OMNI_ENCODER_BACKEND=local</code> 加载GPU模型。不要把远端服务也改成remote，否则可能形成错误的转发配置。业务系统的API Key与推理Key各司其职。</p>
+<h3>独立Python调用</h3>
+<p>此例使用第2节的环境变量；若执行过上一段的unset，请先重新设置 <code>OMNI_INFERENCE_URL</code>。</p>
+<pre><code># 将 docs/examples/embeddinggemma_client.py 放到你的项目可导入位置
+import asyncio, math, os
+from embeddinggemma_client import EmbeddingGemmaClient, load_key
+
+async def main():
+    async with EmbeddingGemmaClient(os.environ['OMNI_INFERENCE_URL'], load_key()) as client:
+        docs = await client.text(
+            ['锅中翻炒番茄和鸡蛋。', '沿海岸步道观看日落。'],
+            input_type='document', titles=['做饭', '海边'], dimensions=768)
+        query = await client.text('厨房里做饭', input_type='query', dimensions=768)
+        q = query['data'][0]['embedding']
+        ranked = sorted(
+            [(r['index'], math.fsum(x*y for x, y in zip(q, r['embedding'])))
+             for r in docs['data']], key=lambda x: x[1], reverse=True)
+        print(ranked)  # 示例仅2条；生产请预先入库并使用向量索引
+
+asyncio.run(main())</code></pre>
+<p>图文检索：图片用image接口入库，文本query查询；视频检索：每个片段用video接口入库，文本query查询。图搜图可比较两边image向量。更换模型revision、向量维度或重要预处理时，新建索引版本并全量或增量重建；不要把新旧向量混到一个无版本字段的集合中。</p>
+
+<h2 id="keys">10. 密钥管理与版本升级</h2>
+<p>推理服务只需要独立服务Key，正常启动与请求都不需要AutoDL开发者Token。Token只供控制面开关机、镜像和资源管理；不要放进runner、客户端源码、镜像中的shell历史或调用日志。不要公开分享包含Key的系统镜像。</p>
+<p>本次应用归档排除了凭据；系统镜像会保留盘上Key。新建副本若要隔离权限，创建新Key后重启整个监督进程，使内存中的鉴权值更新；再以安全文件传输更新调用端文件，验证新Key可用、旧Key返回401。只修改磁盘文件不会立即改变当前服务进程的Key。长期使用的httpx示例客户端也应重新创建；RemoteEncoder会在每次请求重读Key文件。</p>
+<pre><code># 维护窗口内操作：先排空业务队列；任一步失败即停止后续操作
+set -e
+cd /root/omniembedding-service
+.conda/bin/python scripts/autodl_ops.py stop
+.conda/bin/python - &lt;&lt;'PY'
+import os, secrets
+from pathlib import Path
+p = Path('inference.key.next')
+with os.fdopen(os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as f:
+    f.write(secrets.token_urlsafe(48) + '\n')
+os.replace(p, Path('inference.key'))
+PY
+.conda/bin/python scripts/autodl_ops.py start</code></pre>
+<p class="small">以上是未来操作方法，本次未轮换在线Key。升级环境时保留固定依赖清单和旧归档，先在可回退环境验收，再切换地址；单副本原地升级会有维护中断。宿主机驱动与模型许可证访问条件也应作为恢复前置条件保留记录。</p>
+
+<h2 id="acceptance">11. 恢复验收与本次完成边界</h2>
+<p>一次完整恢复至少满足：GPU驱动兼容 → 环境和权重完整 → 本机HTTP监听 → ready正确 → 真实推理 → 文本/图像/视频和鉴权 → 公网访问 → 调用方索引版本一致。SSH能登录或进程有PID都不够。</p>
+<pre><code># 服务器：在端口开始监听后验收
+/root/omniembedding-service/.conda/bin/python \
+  /root/omniembedding-service/scripts/autodl_verify.py \
+  --base-url http://127.0.0.1:6006 \
+  --key-file /root/omniembedding-service/inference.key \
+  --ready-timeout 900 --request-timeout 120
+
+# 本机：同样验收公网路径，不会打印Key或完整向量
+python3 scripts/autodl_verify.py \
+  --base-url 'https://u151984-79222bf22ba5.bjb2.seetacloud.com:8443' \
+  --key-file "$OMNI_INFERENCE_KEY_FILE" \
+  --ready-timeout 900 --request-timeout 120</code></pre>
+<div id="verification-results" class="note"><strong>本次已经完成：</strong><ul>
+<li>当前应用环境归档：5,339,719,671字节（约5.34GB / 4.97GiB）；48,276个成员，原始文件合计9,338,082,383字节。服务在线完成备份。</li>
+<li>云端与本机各自完成整包SHA-256和逐成员校验，结果一致；扫描全部常规文件内容，未匹配当前服务Key、SSH/Jupyter凭据及所提供账户JWT前缀。</li>
+<li>本机文件：<code>data/autodl-backups/20261018/embeddinggemma2-runtime-20261018.tar.gz</code>，同目录的两个侧文件须一起保留。云端副本在 <code>/root/omniembedding-backups/</code>。</li>
+<li>归档SHA-256：<code>5a7334d770db51d25065de01d558d794b0f6d238b23dcaa1c43bcb1e5fe4b49d</code>。详见<a href="../data/autodl-guide/DELIVERY.json">交付记录</a>及<a href="../data/autodl-backups/20261018/embeddinggemma2-runtime-20261018.tar.gz.manifest.json">逐文件清单</a>。</li>
+<li>实机环境/缓存/CUDA/pip预检通过；重复start没有新增进程；公网鉴权、query/document、图像、视频帧和真实探针全部通过。结束时ready正常、模型boot_id与开始相同。</li>
+<li>阻断外部socket的独立CPU加载与文本推理通过；实机Linux小型隔离fixture的恢复、权限、链接与拒绝覆盖检查通过。均不等于完整GPU恢复演练。</li><li>新增的合成本地MP4 → 8张512×288 JPEG帧 → 公网视频API的完整调用已通过，返回768维单位向量；临时媒体已清理。</li></ul></div>
+<p><strong>没有执行：</strong>关闭/重启云实例、保存新的平台系统镜像、另开付费GPU实例、覆盖现有部署做恢复演练。CPU离线加载只验证缓存与该路径，不代表GPU冷启动/全部模态/平台开机配置已重新验收。本次新增运维文件不改变正在运行的模型进程。</p>
+<p>建议把“恢复需要多少分钟、丢失多少更新”也作为运维指标：先以每次发布保存环境版本、每日保存业务索引元数据为起点，真实恢复窗口中测量RTO/RPO，再决定是否值得为预留实例或第二副本付费。镜像解决环境复用，副本与调度解决持续在线，两类成本应分别衡量。</p>
+
+<h2 id="sources">12. 依据与随附文件</h2>
+<ul>
+<li><a href="https://www.autodl.com/docs/image/">AutoDL镜像说明</a>：系统镜像保存、加载与导入限制。</li>
+<li><a href="https://www.autodl.com/docs/instance_pro_api/">AutoDL Pro API</a>：镜像查询、保存、实例详情、开机命令与驱动下限。</li>
+<li><a href="https://www.autodl.com/docs/instance_pro_data/">AutoDL Pro存储说明</a>：系统盘、计费与保留；请留意长期关机的数据保留期限。</li>
+<li><a href="https://www.autodl.com/docs/common_api/">AutoDL通用API</a>：不要与Pro端点混用。现场Pro snapshot的GET请求需用URL查询参数，JSON body测试返回RequestParameterIsWrong。</li>
+<li><a href="examples/embeddinggemma_client.py">轻量Python客户端</a> · <a href="../scripts/autodl_ops.py">启动与运维工具</a> · <a href="../scripts/autodl_backup.py">环境归档与恢复工具</a> · <a href="../scripts/autodl_verify.py">完整接口验收工具</a>。</li>
+<li><a href="../data/autodl-guide/platform-images.json">实际镜像状态</a> · <a href="../data/autodl-guide/live-inventory.json">现场运行信息</a> · <a href="../data/autodl-guide/image-docs-review.json">官方规则研究记录</a> · <a href="../data/autodl-guide/startup-audit.json">启动源码审阅</a> · <a href="../data/autodl-guide/DELIVERY.json">交付与验证清单</a>。</li>
+</ul>
+<footer>本文依据2026-10-18的实际部署、固定revision源码与官方文档编写。HTML自包含，可离线打开或浏览器打印；文件链接按仓库目录结构解析。示例路径中的photo/frames须替换为你自己的文件。复制按钮仅复制命令正文，不读取任何本机凭据。</footer>
+</main>
+<script>
+for (const pre of document.querySelectorAll('pre')) { const b=document.createElement('button');b.className='copy';b.textContent='复制';b.type='button';b.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(pre.querySelector('code').textContent);b.textContent='已复制';}catch{b.textContent='请选中文本复制';}setTimeout(()=>b.textContent='复制',1800)});pre.prepend(b);}
+</script>
+</html>

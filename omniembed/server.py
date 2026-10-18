@@ -11,12 +11,15 @@ import secrets
 import tempfile
 import threading
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
+from pydantic import BaseModel, ConfigDict, StrictBool, model_validator
+from starlette.concurrency import run_in_threadpool
 
 from . import __version__, evaluation, media
 from .config import CONFIG
@@ -28,12 +31,15 @@ from .openai_api import build_router
 from .pipeline import Pipeline
 from .retrieval import DIMS, MODES, Index
 from .store import Store
+from .service_health import ServiceHealthManager
+from .remote_encoder import RemoteEncoderError
 
 CONFIG.ensure_dirs()
 (CONFIG.data_dir / "tmp").mkdir(exist_ok=True)
 STORE = Store(CONFIG.db_path)
 PIPE = Pipeline(STORE)
 INDEX = Index(STORE)
+SERVICE_HEALTH = ServiceHealthManager(CONFIG.data_dir)
 WEB = Path(__file__).resolve().parent / "web"
 
 app = FastAPI(title="OmniEmbedding", version=__version__)
@@ -57,15 +63,25 @@ def embed_auth(authorization: str | None = Header(default=None), x_api_key: str 
                             headers={"Cache-Control": "no-store", "WWW-Authenticate": "Bearer"})
 
 
-app.include_router(build_router(embed_auth, lambda: INDEX.enc))
-app.include_router(build_health_router(embed_auth, lambda: INDEX.enc))
+def local_encoder():
+    """The new direct-model routes require local texts/load/tokenizer support."""
+    if getattr(INDEX.enc, "backend", "local") != "local":
+        raise HTTPException(503, "当前编码后端为 remote；本机模型接口不可用，请使用检索接口和服务健康页面")
+    return INDEX.enc
+
+
+app.include_router(build_router(embed_auth, local_encoder))
+app.include_router(build_health_router(embed_auth, local_encoder))
 WARMUP_STOP = threading.Event()
 
 
 @app.on_event("startup")
 def _start():
     PIPE.start()
-    if os.environ.get("OMNI_SKIP_WARMUP") != "1":  # 测试里关闭，用假编码器手动预热
+    SERVICE_HEALTH.start()
+    # The upstream warmup loads a local model. Remote business calls keep
+    # their existing lazy behavior; observation is owned by SERVICE_HEALTH.
+    if os.environ.get("OMNI_SKIP_WARMUP") != "1" and getattr(INDEX.enc, "backend", "local") == "local":
         threading.Thread(target=warmup, args=(lambda: INDEX.enc,), kwargs={"stop": WARMUP_STOP},
                          name="warmup", daemon=True).start()
 
@@ -73,6 +89,7 @@ def _start():
 @app.on_event("shutdown")
 def _stop():
     WARMUP_STOP.set()
+    SERVICE_HEALTH.stop()
     PIPE.stop()
 
 
@@ -87,6 +104,11 @@ async def _inference_error(_: Request, ex: InferenceError):
     print(f"[inference] {ex.category}: {ex}")
     return JSONResponse({"detail": {"error": {"message": ex.category, "type": "server_error"}}}, status_code=503,
                         headers={"Retry-After": "5"})
+
+
+@app.exception_handler(RemoteEncoderError)
+async def _remote_error(_: Request, ex: RemoteEncoderError):
+    return JSONResponse({"detail": str(ex)}, status_code=ex.status_code)
 
 
 # ---------- 入库 ----------
@@ -283,11 +305,48 @@ def video_file(vid: str):
 def stats():
     """不需要密钥，所以只返回类别和计数：不含服务器路径、异常文本或用户提交的 URL。"""
     enc, h = INDEX.enc, HEALTH.snapshot()
-    return {"version": __version__, "model": enc.model_id, "model_revision": getattr(enc, "resolved_revision", None),
+    return {"version": __version__, "model": enc.model_id,
+            "model_revision": getattr(enc, "resolved_revision", None) or getattr(enc, "revision", None),
             "model_loaded": enc.loaded, "device": enc.device, "dtype": getattr(enc, "dtype", None),
+            "encoder_backend": getattr(enc, "backend", "local"),
+            "remote_last_success_at": getattr(enc, "last_success_at", None),
             "model_load_s": enc.load_s, "health": h["status"], "status": STORE.counts(), "indexed": INDEX.size,
             "index_build_s": INDEX.built_s, "processed_since_start": PIPE.processed, "last_error": PIPE.last_error,
             "frames": {"fps": CONFIG.fps, "max_frames": CONFIG.max_frames}, "auth": bool(CONFIG.api_key)}
+
+
+@app.get("/api/service-health", dependencies=[Depends(auth)])
+def service_health(hours: float = Query(3, gt=0, le=3), limit: int = Query(180, ge=1, le=500),
+                   profile: Literal["local", "colab"] | None = None):
+    """Read recent probe logs only. Reading this route never runs a probe."""
+    return JSONResponse(SERVICE_HEALTH.summary(profile=profile, hours=hours, limit=limit),
+                        headers={"Cache-Control": "no-store"})
+
+
+class HealthProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool | None = None
+    selected: StrictBool | None = None
+
+    @model_validator(mode="after")
+    def explicit_controls(self):
+        if not self.model_fields_set:
+            raise ValueError("需要指定 enabled 或 selected")
+        if any(getattr(self, field) is None for field in self.model_fields_set):
+            raise ValueError("监测开关必须为布尔值")
+        if "selected" in self.model_fields_set and self.selected is not True:
+            raise ValueError("切换服务页签请使用 selected:true")
+        return self
+
+
+@app.patch("/api/service-health/profiles/{profile}", dependencies=[Depends(auth)])
+def update_health_profile(profile: Literal["local", "colab"], body: HealthProfileUpdate, request: Request):
+    # Reject cross-site HTML/fetch writes even when local mode has no API key.
+    origin = request.headers.get("origin")
+    if origin is not None and origin.rstrip("/") != str(request.base_url).rstrip("/"):
+        raise HTTPException(403, "仅允许从当前服务页面修改监测开关")
+    return JSONResponse(SERVICE_HEALTH.update(profile, enabled=body.enabled, selected=body.selected),
+                        headers={"Cache-Control": "no-store"})
 
 
 # ---------- 召回 ----------
@@ -319,7 +378,11 @@ async def search_image(file: UploadFile = File(...), k: int = 20):
         img = Image.open(io.BytesIO(raw)).convert("RGB")
     except Exception:
         raise HTTPException(400, "无法识别的图片")
-    return {"results": _hydrate(INDEX.search_image(img, max(1, min(k, 100))))}
+    try:
+        results = await run_in_threadpool(INDEX.search_image, img, max(1, min(k, 100)))
+        return {"results": _hydrate(results)}
+    finally:
+        img.close()
 
 
 @app.get("/api/videos/{vid}/similar")

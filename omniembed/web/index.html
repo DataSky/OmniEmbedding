@@ -15,6 +15,7 @@
     <button role="tab" data-tab="library" aria-selected="false">视频库</button>
     <button role="tab" data-tab="search" aria-selected="false">召回</button>
     <button role="tab" data-tab="eval" aria-selected="false">评估</button>
+    <button role="tab" data-tab="health" aria-selected="false">服务健康</button>
   </nav>
   <div id="stat" class="mute stat" aria-live="polite"></div>
 </header>
@@ -98,11 +99,66 @@
       </div>
     </div>
   </section>
+
+  <section id="tab-health" class="tab health-page" role="tabpanel" hidden>
+    <div class="health-heading">
+      <div><h2>推理服务健康监测</h2><p class="mute">本地电脑与 Colab 独立启停，保留最近 3 小时的监测记录。</p></div>
+      <div class="health-refresh-tools"><button id="health-refresh" type="button">刷新记录</button><span id="health-refresh-state" class="mute" role="status" aria-live="polite"></span></div>
+    </div>
+    <div class="health-profile-tabs" role="tablist" aria-label="健康监测目标">
+      <button id="health-profile-local" type="button" role="tab" aria-selected="true" aria-controls="health-profile-content" data-health-profile="local"><span>本地电脑</span><small id="health-profile-local-state">读取中</small></button>
+      <button id="health-profile-colab" type="button" role="tab" aria-selected="false" aria-controls="health-profile-content" data-health-profile="colab" tabindex="-1"><span>Google Colab</span><small id="health-profile-colab-state">读取中</small></button>
+    </div>
+    <div id="health-profile-content" role="tabpanel" aria-labelledby="health-profile-local">
+      <div class="panel health-target">
+        <div class="health-target-main"><h2 id="health-title">本地电脑健康监测</h2><p id="health-target-url" class="health-mono mute">正在读取监测配置…</p><a id="health-open-service" target="_blank" rel="noopener noreferrer" hidden>打开本地服务 ↗</a></div>
+        <div class="health-switch-group"><span id="health-toggle-label">健康监测</span><button id="health-toggle" class="health-switch" type="button" role="switch" aria-checked="false" aria-label="启用本地电脑监测" disabled><span class="health-switch-track" aria-hidden="true"><span></span></span><span id="health-toggle-state">读取中</span></button></div>
+        <p id="health-source-note" class="mute health-source-note">只读取最近 3 小时日志，不会因刷新页面触发模型推理。</p>
+      </div>
+      <div id="health-error" class="health-notice" role="alert" hidden></div>
+      <div id="health-disabled-notice" class="health-disabled-notice" role="status" hidden></div>
+      <div id="health-metrics" class="health-metrics">
+        <div class="panel health-metric"><h2>当前监测状态</h2><div id="health-status" class="health-status">等待记录</div><p id="health-status-note" class="mute">尚未读取探测记录</p></div>
+        <div class="panel health-metric"><h2 id="health-freshness-label">最后探测新鲜度</h2><div id="health-freshness" class="health-value">—</div><p id="health-last-probe" class="mute">超过 180 秒标记为监测停滞</p></div>
+        <div class="panel health-metric"><h2 id="health-availability-label">探测样本可用率</h2><div id="health-availability" class="health-value">—</div><p id="health-sample-counts" class="mute">无观测样本</p></div>
+        <div class="panel health-metric"><h2 id="health-latency-label">就绪探测 P95</h2><div id="health-p95" class="health-value">—</div><p id="health-p50" class="mute">包含网络耗时 · P50：—</p></div>
+      </div>
+      <details id="health-archive" class="health-archive" open>
+        <summary id="health-archive-label">查看最近 3 小时的观测详情</summary>
+        <div class="panel health-context">
+          <h2>观测窗口与模型</h2>
+          <p id="health-window" class="mute">读取最近 3 小时的窗口…</p>
+          <p id="health-coverage" class="mute">实际覆盖由已收到的记录决定，不补造历史。</p>
+          <dl class="kv health-kv">
+            <dt>最近真实推理成功</dt><dd id="health-last-inference">—</dd>
+            <dt id="health-expiry-label">服务运行方式</dt><dd id="health-expires">—</dd>
+            <dt>模型</dt><dd id="health-model">—</dd>
+            <dt>模型提交</dt><dd id="health-revision" class="health-mono">—</dd>
+            <dt>本次启动标识</dt><dd id="health-boot" class="health-mono">—</dd>
+            <dt>窗口内深度检查成功</dt><dd id="health-deep-count">—</dd>
+          </dl>
+        </div>
+        <div class="panel health-history">
+          <div class="bar"><h2>探测明细（历史）</h2><span id="health-log-count" class="mute"></span></div>
+          <div class="scroll" role="region" aria-label="健康探测历史表，可横向滚动" tabindex="0"><table class="health-log"><thead><tr><th>时间（北京时间）</th><th>状态</th><th>原因</th><th>Live HTTP / 耗时</th><th>Ready HTTP / 耗时</th><th>Deep HTTP / 耗时</th></tr></thead><tbody id="health-log-rows"><tr><td colspan="6" class="mute">尚无探测记录</td></tr></tbody></table></div>
+        </div>
+        <details class="panel health-details"><summary>查看当前窗口 JSON</summary><pre id="health-json" class="health-json">尚未读取记录</pre></details>
+      </details>
+      <details class="panel health-explanation">
+        <summary>检测方式</summary>
+        <p class="mute">仅启用的目标由 Web 后台每 60 秒检查存活与就绪、每 300 秒执行一次真实推理检查。关闭后不再发起后续健康请求，已经开始的检查会自然结束；已保存的日志仍可查看。</p>
+        <p class="mute">页面每 30 秒仅读取最近 3 小时的历史，时间均为北京时间。刷新记录、切换监测目标均不会主动触发 GPU 推理。无记录或超过 180 秒未采样时，不能据此认定服务健康。</p>
+        <p class="mute">可用率为成功探测轮数占全部观测轮数的比例，忙碌样本单列且计入分母；P95 / P50 统计 Ready 耗时，包含网络时间。这些是探测样本指标，不代表业务 SLA。</p>
+        <p class="mute">启用 Colab 监测只使用已有连接，不会创建或续租实例，也不能阻止平台回收资源。本地电脑与 Colab 的日志、开关和到期信息各自独立。</p>
+      </details>
+    </div>
+  </section>
 </main>
 
 <dialog id="detail" aria-labelledby="d-title"><div id="d-body"></div></dialog>
 <script src="/static/app.js"></script>
 <script src="/static/library.js"></script>
+<script src="/static/service_health.js"></script>
 <script src="/static/search_eval.js"></script>
 </body>
 </html>

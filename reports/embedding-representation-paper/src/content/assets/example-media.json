@@ -1,0 +1,59 @@
+{
+  "asset_id": "asset_623aa5563a0fe18bb7b7798e",
+  "cover": {
+    "data_url": "",
+    "sha256": "40f2f588cd84db8ea1d4929597f4e7caccccaed2d4629cd660cca0038e0426d3",
+    "bytes": 53917
+  },
+  "frames": [
+    {
+      "index": 0,
+      "data_url": "",
+      "sha256": "5ba2e399df9bffefb1af54a2012a23ffcbda94f64590c852723d4e72baec86b7",
+      "bytes": 55280
+    },
+    {
+      "index": 1,
+      "data_url": "",
+      "sha256": "9859a5bdfd5f411939a476244e203287dc06d5ce8f83b647bc5ec1696a094eeb",
+      "bytes": 56671
+    },
+    {
+      "index": 2,
+      "data_url": "",
+      "sha256": "5f22e3d7667de2cb9ca258b7f624b0905cd8c6f5486acbff849c085be8655783",
+      "bytes": 55303
+    },
+    {
+      "index": 3,
+      "data_url": "",
+      "sha256": "1cd96c48e8a6bad5558a4ae1ca42df271a1d7e646aa4b364fa7fde3dd4811ade",
+      "bytes": 55881
+    },
+    {
+      "index": 4,
+      "data_url": "",
+      "sha256": "0675bea360efa56a114c66f70ec4e55e6903a3c027f3f3efacb8f990f1261920",
+      "bytes": 54536
+    },
+    {
+      "index": 5,
+      "data_url": "",
+      "sha256": "e63788da3a9e74172f4337ad3627d9876b543b8c1a9f561888b5e04141d5e0d0",
+      "bytes": 50490
+    },
+    {
+      "index": 6,
+      "data_url": "",
+      "sha256": "6be49aa74f03aaddf3e62f9342bad58b1f05d462958cc51580f36d69c6d88eb5",
+      "bytes": 55485
+    },
+    {
+      "index": 7,
+      "data_url": "",
+      "sha256": "f985bd4761720e95baab773096bbb1f8332b75e2ceb62481c16a152940dd5f23",
+      "bytes": 54881
+    }
+  ],
+  "public_redacted": "私有素材，未随源码公开。封面与采样帧的像素内容已省略；保留原始摘要、字节数及帧索引，实测结果未更改。原始平台素材标识未公开，报告使用 sample-001 作为公开别名。"
+}

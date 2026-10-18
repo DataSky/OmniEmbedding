@@ -73,5 +73,5 @@ $("#ev-run").onclick = async () => {
 // 打开时按地址栏 #标签 定位
 {
   const h = (location.hash || "").slice(1);
-  showTab(["ingest", "jobs", "library", "search", "eval"].includes(h) ? h : "ingest");
+  showTab(["ingest", "jobs", "library", "search", "eval", "health"].includes(h) ? h : "ingest");
 }

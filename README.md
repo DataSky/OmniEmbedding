@@ -5,6 +5,16 @@
 
 适合用来：在自己的视频上验证"按画面搜视频""以图搜视频""标题 + 画面混合召回"的效果，或作为短视频搜索召回层的原型。
 
+## 最新进展（2026-10-18）
+
+- 新增带鉴权的独立推理服务和远程编码客户端，支持文本、图片和视频帧序列；本地检索应用可以连接 AutoDL 或 Colab。
+- 新增本地素材检索 Demo，包含安全导入、封面 / 视频 / 文本三路向量、关键词与融合召回、Galaxy 投影、SQLite 存储与调用追踪。使用说明见 [本地 Demo](docs/LOCAL_DEMO.html)。
+- 新增 AutoDL 部署、进程管理、真实推理探针、环境备份及恢复工具；[运维指南](docs/AUTODL_OPERATIONS.html)区分了停止服务、实例关机、保存镜像和数据保留规则。
+- 补充 [Colab 部署](docs/COLAB.md)、[本地健康监测](docs/LOCAL_INFERENCE_HEALTH.md)、调用示例、素材清单规范及回归测试。
+- 保存两份报告的源码：[系统总结](reports/embedding-system-summary/src/content/report/ReportContent.jsx)、[表示与时间信息](reports/embedding-representation-paper/src/content/report/ReportContent.jsx)。公开版本不附带私有封面和视频帧；实测数值与相关性结论的适用范围见报告正文。
+
+仓库不包含服务密钥、模型权重、业务素材、运行数据库、原始验收记录或报告离线导出；文档中的 `data/` 链接指向使用者本机生成的文件。
+
 ## 功能
 
 | 环节 | 做什么 |
@@ -20,7 +30,7 @@
 
 ## 快速开始
 
-需要 Python 3.10+，有 NVIDIA 显卡更快（只用 CPU 也能跑，向量化会慢很多）。
+需要 Python 3.12+，有 NVIDIA 显卡更快（只用 CPU 也能跑，向量化会慢很多）。
 
 ```bash
 git clone https://github.com/DataSky/OmniEmbedding.git
@@ -33,6 +43,30 @@ python -m omniembed serve        # 打开 http://127.0.0.1:8770
 ```
 
 首次向量化时会从 Hugging Face 下载模型（约 1.5 GB）。国内网络可设置 `HF_ENDPOINT=https://hf-mirror.com`。
+
+### 本地素材检索 Demo
+
+已有远程推理服务时，可只安装轻量客户端，无需在本机安装模型或 PyTorch。使用 Python 3.11 或 3.12：
+
+```bash
+bash scripts/local_demo.sh install  # 首次安装
+# 按运维指南准备 data/autodl/endpoint.json 与私有 inference.key
+bash scripts/local_demo.sh start    # 打开 http://127.0.0.1:8780/demo/
+bash scripts/local_demo.sh status
+bash scripts/local_demo.sh stop
+```
+
+端点和 Key 文件格式、导入与检索流程见[本地 Demo 使用说明](docs/LOCAL_DEMO.html)和 [AutoDL 运维指南](docs/AUTODL_OPERATIONS.html)。停止本地 Demo 不会关闭远程 GPU 实例。
+
+### Colab 推理服务
+
+需要把推理放到 Colab GPU 时，设置 `OMNI_ENCODER_BACKEND=remote`，现有入库、检索、
+评测统一使用带 Bearer 鉴权的文本 / 图片 / 原生视频帧 API：
+[部署与健康监测说明](docs/COLAB.md)、[自包含 Colab Notebook](notebooks/Colab_EmbeddingGemma2.ipynb)。
+现有网页的「服务健康」页提供本地电脑 / Colab 双页签及独立监测开关，默认本地开启、Colab 停用。
+汇总最近 3 小时的探测日志；停用后灰显并保留历史，读取页面不触发 GPU 推理。
+监控在 Colab 外由网页后端运行，区分存活、就绪和真实推理；默认实验窗口为 2 小时。
+健康探针不能延长 Colab 租期，长期服务需要稳定的 GPU 宿主。
 
 ### 命令行
 
@@ -58,6 +92,7 @@ python -m omniembed watchdog                              # 启动服务并守�
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `OMNI_DATA_DIR` | `./data` | 数据库、视频、缩略图都在这里，建议指到大容量盘 |
+| `OMNI_ENCODER_BACKEND` | `local` | `remote` 使用 Colab；端点与私有密钥默认来自 `data/colab/`，失败不会回退本机 |
 | `OMNI_MAX_FRAMES` | `8` | 每条视频最多抽几帧 |
 | `OMNI_HOST` / `OMNI_PORT` | `127.0.0.1` / `8770` | 监听地址 |
 | `OMNI_API_KEY` | 空 | 设置后所有写操作要带 `X-API-Key` 请求头；**监听非本机地址时必须设置** |

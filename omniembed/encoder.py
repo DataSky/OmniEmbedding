@@ -8,6 +8,7 @@
 import threading
 import time
 from pathlib import Path
+import os
 
 import numpy as np
 
@@ -29,12 +30,15 @@ def renorm(x: np.ndarray, dim: int | None) -> np.ndarray:
 
 
 class Encoder:
-    def __init__(self, model_id=None, device=None, revision=None):
+    def __init__(self, model_id=None, device=None, revision=None, dtype=None):
         self.model_id = model_id or CONFIG.model_id
         self.device = device or CONFIG.device
-        self.revision = revision or CONFIG.model_revision
+        self.revision = revision or os.environ.get("OMNI_MODEL_REVISION") or CONFIG.model_revision
         self.resolved_revision = None  # 实际加载的提交版本
-        self.dtype = None
+        self._dtype_request = dtype or os.environ.get("OMNI_DTYPE", "auto")
+        if self._dtype_request not in {"auto", "float32", "bfloat16"}:
+            raise ValueError("OMNI_DTYPE must be auto, float32 or bfloat16; float16 is unsafe for this model")
+        self.dtype = "pending"
         self._m = None
         self._lock = threading.Lock()
         self.load_s = None
@@ -57,17 +61,25 @@ class Encoder:
                     if dev == "auto":
                         dev = "cuda" if torch.cuda.is_available() else "cpu"
                     if dev == "cuda":
-                        dev = f"cuda:{torch.cuda.current_device()}"
-                    dtype = torch.bfloat16 if dev.startswith("cuda") else torch.float32
+                        dev = f"cuda:{getattr(torch.cuda, 'current_device', lambda: 0)()}"
+                    # T4 (compute capability 7.5) has no native BF16 support. Avoid
+                    # silently choosing FP16 or emulated BF16 on these Colab GPUs.
+                    is_cuda = str(dev).startswith("cuda")
+                    supports_bf16 = (is_cuda and torch.cuda.is_bf16_supported()
+                                     and torch.cuda.get_device_capability(torch.device(dev))[0] >= 8)
+                    if self._dtype_request == "bfloat16" and not supports_bf16:
+                        raise ValueError("bfloat16 requires a CUDA GPU with native BF16 support")
+                    use_bf16 = supports_bf16 and self._dtype_request != "float32"
+                    dtype = torch.bfloat16 if use_bf16 else torch.float32
                     t = time.time()
-                    m = SentenceTransformer(self.model_id, device=dev, revision=self.revision,
-                                            model_kwargs={"torch_dtype": dtype},
-                                            config_kwargs={"audio_config": None})  # 视频只用画面，不加载音频编码器
+                    m = SentenceTransformer(self.model_id, device=dev, model_kwargs={"torch_dtype": dtype},
+                                            config_kwargs={"audio_config": None},
+                                            revision=self.revision)  # 视频只用画面，不加载音频编码器
                     m.eval()
                     m.max_seq_length = 8192
                     self.resolved_revision = self._resolve_revision()
-                    self.dtype = str(dtype).replace("torch.", "")
                     self.device, self.load_s, self._m = dev, round(time.time() - t, 1), m
+                    self.dtype = "bfloat16" if use_bf16 else "float32"
         return self._m
 
     def _resolve_revision(self):
@@ -136,4 +148,17 @@ class Encoder:
         return self._enc(list(imgs), bs)
 
 
-ENCODER = Encoder()
+def create_encoder(cfg=CONFIG):
+    """Choose once for all ingestion, retrieval and evaluation callers."""
+    backend = cfg.encoder_backend.strip().lower()
+    if backend == "local":
+        return Encoder(model_id=cfg.model_id, device=cfg.device, revision=cfg.model_revision)
+    if backend == "remote":
+        from .remote_encoder import RemoteEncoder
+        return RemoteEncoder(model_id=cfg.model_id, revision=cfg.model_revision,
+                             endpoint_file=os.environ.get("OMNI_INFERENCE_ENDPOINT_FILE") or cfg.data_dir / "colab" / "endpoint.json",
+                             key_file=os.environ.get("OMNI_INFERENCE_KEY_FILE") or cfg.data_dir / "colab" / "inference.key")
+    raise ValueError("OMNI_ENCODER_BACKEND must be local or remote")
+
+
+ENCODER = create_encoder()

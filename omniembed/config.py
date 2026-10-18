@@ -43,6 +43,7 @@ class Config:
     probe_wait_s: float = field(default_factory=lambda: _env("OMNI_PROBE_WAIT", 10.0, float))
     probe_timeout_s: float = field(default_factory=lambda: _env("OMNI_PROBE_TIMEOUT", 30.0, float))
     device: str = field(default_factory=lambda: _env("OMNI_DEVICE", "auto"))
+    encoder_backend: str = field(default_factory=lambda: _env("OMNI_ENCODER_BACKEND", "local"))
     # 抽帧：评测显示 1fps、最多 8 帧与 16/32 帧精度相差 <1 分，速度快 1.8–2.7 倍
     fps: float = field(default_factory=lambda: _env("OMNI_FPS", 1.0, float))
     max_frames: int = field(default_factory=lambda: _env("OMNI_MAX_FRAMES", 8, int))

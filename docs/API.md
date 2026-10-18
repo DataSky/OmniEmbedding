@@ -27,7 +27,9 @@ FastAPI 自带的交互式文档在 `/docs`。
 | ✎ PATCH | `/api/videos/{id}` | JSON `{"title", "description", "tags"}`；会重算标题向量和融合向量，不重新抽帧 |
 | ✎ POST | `/api/videos/{id}/retry` | 失败任务重新排队 |
 | ✎ DELETE | `/api/videos/{id}?delete_file=true` | 删除记录、向量、缩略图，默认同时删除视频文件 |
-| GET | `/api/stats` | 各状态数量、已入库数、模型是否加载、抽帧设置 |
+| GET | `/api/stats` | 各状态数量、已入库数、编码后端、模型版本、抽帧设置；`remote_last_success_at` 为最近业务调用成功时间，读取此接口不访问远端 |
+| GET | `/api/service-health?profile=local&hours=3&limit=180` | 按 `local` / `colab` 返回最近 3 小时日志及双服务开关；省略 profile 恢复选中的页签。只读历史，不触发探测，配置 API Key 后需 `X-API-Key` |
+| ✎ PATCH | `/api/service-health/profiles/{profile}` | JSON `{"enabled":false}` 启停该服务的健康监测，或 `{"selected":true}` 保存选中页签；两者独立。设置持久化，停用返回 `DISABLED`，保留历史，不新建或续租实例 |
 
 ## 召回
 

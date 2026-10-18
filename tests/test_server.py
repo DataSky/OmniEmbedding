@@ -146,3 +146,16 @@ def test_web_ui_served(client):
     assert r.status_code == 200 and "OmniEmbedding" in r.text
     for f in ("app.js", "library.js", "search_eval.js", "app.css"):
         assert client.get(f"/static/{f}").status_code == 200
+
+
+def test_direct_model_routes_fail_explicitly_for_remote_backend(client, monkeypatch):
+    monkeypatch.setattr(client.server.INDEX.enc, "backend", "remote", raising=False)
+    assert client.get("/health/live").status_code == 200
+    for response in (
+        client.get("/health/ready"),
+        client.post("/health/inference"),
+        client.post("/v1/embeddings", json={"input": "test"}),
+    ):
+        assert response.status_code == 503
+        assert "remote" in response.json()["detail"]
+    assert client.get("/api/stats").json()["encoder_backend"] == "remote"

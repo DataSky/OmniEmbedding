@@ -1,0 +1,59 @@
+.report-page{
+  --data-app-layout-intent:authored-report;
+  --data-app-content-width:900px;
+  --data-app-report-prose-width:900px;
+  max-width:calc(900px + 72px);
+  margin-inline:auto;
+  padding:46px 36px 100px;
+}
+.paper-report{display:grid;gap:28px;min-width:0;font-family:"Noto Serif CJK SC","Songti SC","STSong","SimSun",Georgia,serif;color:var(--text)}
+.paper-report>*{min-width:0}
+.paper-report .paper-hero{display:grid;gap:14px;padding-bottom:28px;border-bottom:2px solid var(--text)}
+.paper-report .paper-hero h1{margin:0;font-family:inherit;font-size:36px;line-height:1.4;font-weight:600;letter-spacing:.01em;text-align:center}
+.paper-report .paper-classification .rich-narrative-content{font-family:var(--font-sans);font-size:12px;letter-spacing:.08em;text-align:center;color:var(--secondary)}
+.paper-report .paper-subtitle .rich-narrative-content{font-size:16px;line-height:1.7;text-align:center;color:var(--secondary)}
+.paper-report .rich-narrative-content{font-size:16px;line-height:1.95;color:var(--text);overflow-wrap:anywhere}
+.paper-report .rich-narrative-content h2{font-family:inherit;font-size:22px;line-height:1.6;font-weight:600;margin:0 0 16px}
+.paper-report .rich-narrative-content h3{font-family:inherit;font-size:18px;font-weight:600;margin:22px 0 10px}
+.paper-report .rich-narrative-content p{margin:0 0 13px}
+.paper-report .rich-narrative-content p:last-child{margin-bottom:0}
+.paper-report .rich-narrative-content li{margin-bottom:8px}
+.paper-report .rich-narrative-content strong{font-weight:600}
+.paper-report .rich-narrative-content a{text-underline-offset:3px;text-decoration-thickness:1px}
+.paper-report .component-title{font-family:inherit;font-size:17px;font-weight:600;line-height:1.6}
+.paper-report [data-component-kind="chart"]{padding:18px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.paper-report [data-component-kind="table"]{padding-top:8px}
+.paper-report [data-component-kind="table"] table{font-family:var(--font-sans);font-size:13px;font-variant-numeric:tabular-nums}
+.paper-report [data-component-kind="custom"]{margin:6px 0}
+.paper-report .paper-equations{display:grid;gap:18px;padding:18px 24px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);font-family:Georgia,"Songti SC",serif;font-size:18px}
+.paper-report .paper-equations>div{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px}
+.paper-report .paper-equations>div>span:first-child{overflow-wrap:anywhere}
+.paper-report .paper-equations>div>span:last-child{color:var(--secondary);font-size:14px}
+.paper-report .paper-coordinate-inspector{display:grid;gap:22px;padding:14px 0;font-family:var(--font-sans)}
+.paper-report .paper-coordinate-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.paper-report .paper-coordinate-values>div{display:grid;gap:8px;padding-block:10px;border-bottom:1px solid var(--border)}
+.paper-report .paper-coordinate-values code{font-size:14px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.paper-report .paper-coordinate-values span{font-size:12px;color:var(--secondary)}
+.paper-report .paper-footer{border-top:1px solid var(--border);padding-top:18px}
+.paper-report .paper-footer .rich-narrative-content{font-size:12px;color:var(--secondary);line-height:1.8}
+@media(max-width:680px){
+  .report-page{padding:24px 20px 70px;max-width:100%}
+  .paper-report{gap:24px}
+  .paper-report .paper-hero h1{font-size:28px}
+  .paper-report .rich-narrative-content{font-size:16px;line-height:1.9}
+  .paper-report .rich-narrative-content h2{font-size:21px}
+  .paper-report .paper-equations{padding:14px 0;font-size:16px}
+  .paper-report .paper-coordinate-values{grid-template-columns:1fr}
+}
+@media print{
+  @page{size:A4;margin:18mm 17mm}
+  .report-page{max-width:none;padding:0}
+  .paper-report{gap:18px;color:var(--text)}
+  .paper-report .paper-hero h1{font-size:25px}
+  .paper-report .rich-narrative-content{font-size:11pt;line-height:1.7}
+  .paper-report .rich-narrative-content h2{font-size:15pt;break-after:avoid}
+  .paper-report .rich-narrative-content h3{font-size:12pt;break-after:avoid}
+  .paper-report .paper-equations{break-inside:avoid;font-size:12pt}
+  .paper-report [data-component-kind="table"],.paper-report [data-component-kind="chart"]{break-inside:avoid}
+  .paper-report .paper-coordinate-values{grid-template-columns:repeat(3,minmax(0,1fr))}
+}

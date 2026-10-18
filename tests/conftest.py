@@ -19,6 +19,7 @@ os.environ["OMNI_API_KEY"] = ""
 os.environ["OMNI_HOST"] = "127.0.0.1"
 os.environ.pop("OMNI_EMBED_DEFAULT_TASK", None)
 os.environ["OMNI_SKIP_WARMUP"] = "1"  # 不在测试里加载真实模型；健康测试手动预热假编码器
+os.environ["OMNI_ENCODER_BACKEND"] = "local"
 
 COLORS = {"red": (0, 0, 255), "green": (0, 255, 0), "blue": (255, 0, 0)}  # OpenCV 用 BGR
 WORDS = {"红": "red", "red": "red", "绿": "green", "green": "green", "蓝": "blue", "blue": "blue"}

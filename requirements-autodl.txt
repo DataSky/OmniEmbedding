@@ -1,0 +1,6 @@
+# Install the matched CUDA wheels first; autodl_bootstrap.sh enforces these pins.
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+numpy==2.5.2
+scipy==1.18.1
+-r requirements-colab.txt

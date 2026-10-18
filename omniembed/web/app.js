@@ -28,6 +28,7 @@ const st = s => `<span class="st ${esc(s)}"><i></i>${esc(STLABEL[s] || s)}</span
 const TABS = {};
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
 function showTab(name) {
+  $("#stat").hidden = name === "health";
   document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach(s => s.hidden = s.id !== "tab-" + name);
   try { history.replaceState(null, "", "#" + name); } catch {}
@@ -41,7 +42,10 @@ async function refreshStat() {
     $("#ver").textContent = "v" + s.version;
     const c = s.status || {}, active = ["queued", "downloading", "probing", "extracting", "embedding"].reduce((a, k) => a + (c[k] || 0), 0);
     $("#jobbadge").textContent = active || "";
-    $("#stat").textContent = `已入库 ${s.indexed} · 处理中 ${active} · 失败 ${c.failed || 0} · 模型 ${s.model_loaded ? s.device : "未加载"} · 抽帧 ${s.frames.fps}fps ≤${s.frames.max_frames} 帧`;
+    const encoder = s.encoder_backend === "remote"
+      ? `Colab 远程推理${s.remote_last_success_at ? " · 最近调用 " + new Date(s.remote_last_success_at).toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) : " · 等待首次调用"}`
+      : `本机模型 ${s.model_loaded ? s.device : "未加载"}`;
+    $("#stat").textContent = `已入库 ${s.indexed} · 处理中 ${active} · 失败 ${c.failed || 0} · ${encoder} · 抽帧 ${s.frames.fps}fps ≤${s.frames.max_frames} 帧`;
     return active;
   } catch (e) { $("#stat").textContent = "服务不可用：" + e.message; return 0; }
 }

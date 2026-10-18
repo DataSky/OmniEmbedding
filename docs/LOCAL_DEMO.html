@@ -1,0 +1,54 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>本地素材检索 Demo · 使用说明</title>
+<style>body{margin:40px auto;padding:0 24px;max-width:1000px;color:#213344;background:#f5f8f9;font:16px/1.85 system-ui,-apple-system,"PingFang SC",sans-serif}h1{font-size:32px}h2{margin-top:36px;border-top:1px solid #d6e1e6;padding-top:20px}pre{overflow:auto;white-space:pre;background:#122d40;color:#eff8fa;padding:20px;border-radius:9px;font-size:13px}code{font-family:ui-monospace,monospace}a{color:#00716e}.note{padding:16px 22px;border-left:4px solid #00847a;background:#e7f4f0}table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:10px;border:1px solid #d6e1e6;text-align:left;vertical-align:top}th{background:#e7eff2}</style>
+<h1>本地素材检索 Demo</h1><p>以封面、视频和来源元数据为起点，查看导入、抽帧、三路编码、SQLite写入、精确召回、星图与完整追踪。</p>
+<p><a href="http://127.0.0.1:8780/demo/">打开应用</a> · <a href="http://127.0.0.1:8780/docs">查看API文档</a></p>
+<div class="note">应用和数据库在本机，向量由现有AutoDL服务生成。正常启动不安装依赖、不下载本机模型。所有Demo推理调用共用一个RemoteEncoder和锁；旧8770应用或其他进程同时访问同一GPU时，仍可能出现429。</div>
+<h2>启动、状态和停止</h2><p>在仓库根目录运行。端口默认8780，已有8770服务不受影响。</p>
+<pre>bash scripts/local_demo.sh start
+bash scripts/local_demo.sh status
+bash scripts/local_demo.sh stop
+
+# 需要前台查看日志时使用serve；不要在start尚在运行时重复serve
+bash scripts/local_demo.sh serve
+
+# 另选端口仍复用同一数据目录，每个数据目录只运行一个进程
+bash scripts/local_demo.sh start --port 8781</pre>
+<p>首次在另一台机器准备环境时，使用Python3.11或3.12执行一次 <code>bash scripts/local_demo.sh install</code>；可用 <code>OMNI_DEMO_SETUP_PYTHON=/path/to/python3.12</code> 指定解释器。安装优先使用已验证的 <code>requirements-demo.lock.txt</code> 固定运行时版本，直接依赖列于 <code>requirements-demo.txt</code>，不含torch或模型下载器。默认使用清华PyPI镜像；可用 <code>OMNI_DEMO_PYPI_INDEX=https://pypi.org/simple</code> 切换。</p>
+<h2>一次完整体验</h2><ol>
+<li>在“概览”或导入区填写本地tar/已解包目录，先预览数量、缺失与字段，再导入。原包里的README、SQL、Python和HTML不会执行或作为页面提供。</li>
+<li>素材库可先查看封面、原视频及点击元数据。当前包有100封面、99视频；缺视频的记录保留封面和文本能力。</li>
+<li>点击素材库的“生成向量”或流水线的“开始向量编码”，查看每条素材的抽帧、封面编码、视频编码、文本编码和写库状态。失败可以重试；暂停/取消等待当前小步结束，不能撤回已到GPU的请求。</li>
+<li>在检索页输入画面描述，例如“舞台上唱歌的人”“厨房做菜”“城市夜景”。分别比较视频画面、封面、文本和关键词，点击结果查看各路分数和trace。也可上传图片做封面/视频画面检索。</li>
+<li>打开Galaxy，在真实向量的PCA投影中缩放、拖动、点选素材；切换三路向量可对照。连线的余弦相似度来自原始768维，二维近邻位置本身不是距离真值。</li>
+<li>在存储/追踪页查看SQLite表、向量版本、指纹、范数、全部768维数值、采样帧时间及搜索排名贡献。每次检索与入库保留独立trace。</li></ol>
+<h2>三路向量与来源边界</h2><table><tr><th>类型</th><th>输入与用途</th></tr>
+<tr><td>cover</td><td>原始封面、EXIF方向修正后RGB编码；不是从视频里临时抽一帧冒充封面。</td></tr>
+<tr><td>visual</td><td>最多8个按时间排序的真实帧，长边缩至512，JPEG90；送原生视频帧接口合并编码为一条向量。缺视频不伪造此向量。</td></tr>
+<tr><td>text</td><td>对keyword_top和keywords去重后按document角色编码；其来源是历史搜索词，不是人工标题或字幕。</td></tr>
+<tr><td>keyword</td><td>本地BM25，中文单字/双字及英文词分词，无需GPU。</td></tr>
+<tr><td>hybrid</td><td>展示固定RRF(k=60)的多路融合及贡献，只供比较，不承诺优于单路。</td></tr></table>
+<p>搜索点击记录不是人工相关性真值。用相同点击词构造text向量，再用它验证检索，会存在信息泄漏；质量验收应额外标注一批未参与入库的查询与相关素材。100条随机候选也不能代表全量视频库效果。</p>
+<p>视频按帧索引均匀采样，时间是索引/FPS的名义估计；变帧率或变尺寸素材须留意详情中的说明。长视频宜分片段建索引，并保存起止时间；当前Demo按每条原视频一条视觉向量演示。</p>
+<h2>本地文件与存储</h2><table><tr><th>路径</th><th>用途</th></tr>
+<tr><td><code>data/local-demo/demo.sqlite3</code></td><td>独立SQLite，WAL，元数据、任务、阶段、trace与float32向量BLOB。检索按模型/revision/维度/精度过滤，再用NumPy精确内积。</td></tr>
+<tr><td><code>data/local-demo/sources/</code></td><td>通过安全导入器复制的内容寻址素材，不改原包。</td></tr>
+<tr><td><code>data/local-demo/frames/</code></td><td>采样帧与可复用的预处理记录（实际子目录以详情路径为准）。</td></tr>
+<tr><td><code>data/local-demo/logs/web.log</code></td><td>本地Web运行日志。</td></tr>
+<tr><td><code>data/local-demo/validation/</code></td><td>实际导入、编码、检索和浏览器验收记录。</td></tr>
+<tr><td><code>data/autodl/endpoint.json</code><br><code>data/autodl/inference.key</code></td><td>后端读取的地址与独立推理密钥。浏览器不会取得密钥。启动脚本可用--endpoint-file/--key-file指定其他路径。</td></tr></table>
+<p>向量指纹包含原始内容、预处理版本、向量类型、固定模型revision、维度与推理精度；重复构建跳过匹配项。修改原始素材后应重新导入，勿手改内部管理副本。更换模型后要建立新的索引版本，不能混合旧向量。</p>
+<h2>通过本地API调用</h2><p>完整参数与响应可在 <a href="http://127.0.0.1:8780/docs">交互式API文档</a> 查看。调用本地接口不需要把AutoDL密钥放进客户端；文本、图片或采样帧由本地后端发送到既有远程推理服务。</p>
+<pre>curl -sS http://127.0.0.1:8780/api/demo/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"聚光灯下的舞台表演","mode":"visual","top_k":10}'
+
+# 图片查询支持 cover / visual；路径换成自己的JPEG、PNG或WebP
+curl -sS http://127.0.0.1:8780/api/demo/search/image \
+  -F 'file=@/absolute/path/query.jpg' -F mode=cover -F top_k=10
+
+# 将trace_id换成检索响应中的实际值
+curl -sS http://127.0.0.1:8780/api/demo/traces/trace_id</pre>
+<p><code>mode</code> 支持 <code>visual</code>、<code>cover</code>、<code>text</code>、<code>keyword</code>、<code>hybrid</code>。可传 <code>dataset_id</code> 限定数据集。响应给出素材ID、分数、各路排名与贡献、分阶段耗时及trace_id；trace保留查询向量，结合素材向量可离线复算余弦分数。批量导入时让后台任务逐条处理，查询方从并发1开始，不要把多路检索拆成并行请求去争抢单GPU。</p>
+<h2>常见处理</h2><ul><li>远端未就绪：先查看“服务健康”及既有AutoDL运维指南，Demo不会自动改用本机模型或伪造结果。</li><li>429：检查是否旧应用或其他调用方也在用同一GPU；Demo内部已串行，跨进程需统一调度。</li><li>素材/编码失败：从流水线查看具体阶段，再按素材重试；已成功的相同指纹编码会复用。</li><li>重启后：数据库与向量保留，未完成任务会停在可恢复状态；在任务页恢复或重新构建。</li><li>备份：停止本地Demo后复制SQLite及sources/frames等关联文件；只备份数据库会失去媒体。单独备份Key且不要放进分享资料包。</li></ul>
+<p>此服务只监听127.0.0.1；停止本地Demo不会关闭AutoDL GPU或停止其计费。当前是100条素材的精确检索演示，扩大规模后再选择ANN索引、独立任务调度与多副本服务。</p>
+</html>

@@ -1,0 +1,1576 @@
+{
+  "title": "从模型服务到可追溯检索：OmniEmbedding 系统总结",
+  "subtitle": "部署、调用、索引召回与全链路白盒化",
+  "status": "reviewed",
+  "buildStatus": "complete",
+  "generatedAt": "2026-10-18T09:21:54.267946+00:00",
+  "surface": "report",
+  "report": {
+    "asOf": "2026-10-18",
+    "summary": "云端鉴权推理、本地素材导入、299条真实向量、精确召回与Trace已闭环；生产容量和中文业务质量仍需独立验收。"
+  },
+  "filters": [],
+  "queries": {
+    "architecture": {
+      "source": {
+        "provider": "Reviewed local implementation",
+        "files": [
+          "omniembed/demo_import.py",
+          "omniembed/demo_engine.py",
+          "omniembed/demo_store.py",
+          "omniembed/demo_app.py",
+          "omniembed/remote_encoder.py"
+        ],
+        "description": "按实现职责整理的6个架构层；非性能统计。",
+        "evidenceFlow": [
+          {
+            "title": "只读代码审查",
+            "detail": "核对导入、后台处理、远程编码、SQLite、搜索与Galaxy入口；不运行新增GPU任务。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "从本地实现抽取模块职责与系统边界，人工复核后登记。"
+        }
+      ],
+      "rows": [
+        {
+          "layer": "素材与导入",
+          "component": "demo_import.py",
+          "role": "预览、配对封面与视频、解析历史关键词、验证并登记素材",
+          "boundary": "原始文件保持独立；素材导入不会自动证明语义相关"
+        },
+        {
+          "layer": "任务与编排",
+          "component": "demo_engine.py",
+          "role": "单后台工作队列、阶段状态、暂停继续重试、指纹复用",
+          "boundary": "长任务与在线查询分离；不是分布式任务系统"
+        },
+        {
+          "layer": "跨本机与云端的编码调用",
+          "component": "本机remote_encoder.py → 云端inference.py",
+          "role": "本机适配器携Key通过HTTPS调用云端模型；云端只做编码与响应校验",
+          "boundary": "算力与媒体处理分离；密钥只留后端"
+        },
+        {
+          "layer": "存储与证据",
+          "component": "demo_store.py",
+          "role": "SQLite WAL、原始向量BLOB、任务阶段、检索与Trace记录",
+          "boundary": "SQLite保存向量；NumPy承担相似度计算"
+        },
+        {
+          "layer": "召回与浏览",
+          "component": "demo_engine.py / web/demo",
+          "role": "精确内积、BM25、RRF、PCA/SVD Galaxy、素材详情",
+          "boundary": "二维投影只辅助浏览；不能替代768维排序"
+        },
+        {
+          "layer": "展示与接口",
+          "component": "demo_app.py",
+          "role": "本机FastAPI、原生前端、只读媒体入口和白盒详情",
+          "boundary": "本地研究Demo；生产鉴权、隔离、容量与SLA需另验收"
+        }
+      ]
+    },
+    "flows": {
+      "rows": [
+        {
+          "flow": "ingest",
+          "step": 1,
+          "name": "预览原包",
+          "operation": "读取结构化元数据与媒体目录，统计100封面、99视频、缺失项。",
+          "evidence": "preview / warnings"
+        },
+        {
+          "flow": "ingest",
+          "step": 2,
+          "name": "校验并受管拷贝",
+          "operation": "白名单读取、拒绝危险路径；计算包与媒体SHA-256，临时目录原子发布。",
+          "evidence": "datasets / assets / media"
+        },
+        {
+          "flow": "ingest",
+          "step": 3,
+          "name": "后台任务",
+          "operation": "导入与embedding显式分离；单worker执行，可暂停、继续、重试。",
+          "evidence": "jobs / stages"
+        },
+        {
+          "flow": "ingest",
+          "step": 4,
+          "name": "封面编码",
+          "operation": "原封面校正EXIF并转RGB，生成cover向量。",
+          "evidence": "cover × 768"
+        },
+        {
+          "flow": "ingest",
+          "step": 5,
+          "name": "视频采样与编码",
+          "operation": "全片最多8个有序中点帧；长边≤512，落地JPEG后联合视频编码。",
+          "evidence": "artifacts / visual × 768"
+        },
+        {
+          "flow": "ingest",
+          "step": 6,
+          "name": "历史词编码",
+          "operation": "keyword_top与keywords去重、换行连接，按document角色编码。",
+          "evidence": "text × 768"
+        },
+        {
+          "flow": "ingest",
+          "step": 7,
+          "name": "校验、版本与落库",
+          "operation": "检查维度、有限值和单位范数；保存版本指纹，复用相同输入。",
+          "evidence": "embeddings / active"
+        },
+        {
+          "flow": "ingest",
+          "step": 8,
+          "name": "完成与追溯",
+          "operation": "可用输入处理完成即ready；缺视频保持unavailable，不生成占位向量。",
+          "evidence": "traces / 素材详情"
+        },
+        {
+          "flow": "search",
+          "step": 1,
+          "name": "接收查询",
+          "operation": "文字走query角色；图片查询走图像编码，只支持cover/visual。",
+          "evidence": "SearchRequest / image"
+        },
+        {
+          "flow": "search",
+          "step": 2,
+          "name": "编码与身份校验",
+          "operation": "非keyword模式远端编码一次；keyword跳过。记录版本、精度与查询坐标。",
+          "evidence": "remote_query / trace"
+        },
+        {
+          "flow": "search",
+          "step": 3,
+          "name": "装载兼容候选",
+          "operation": "按数据集、kind、模型、版本、维度、预处理及精度筛选active向量。",
+          "evidence": "cover100 / visual99 / text100"
+        },
+        {
+          "flow": "search",
+          "step": 4,
+          "name": "本地精确打分",
+          "operation": "NumPy矩阵×查询向量；keyword单独执行BM25，无需GPU。",
+          "evidence": "cosine / BM25"
+        },
+        {
+          "flow": "search",
+          "step": 5,
+          "name": "排序或融合",
+          "operation": "单路按分数排序；hybrid对三路向量与BM25做固定RRF。",
+          "evidence": "route score / rank / contribution"
+        },
+        {
+          "flow": "search",
+          "step": 6,
+          "name": "返回并记录",
+          "operation": "读取素材卡片与媒体入口；保存候选数、分阶段耗时和Trace。",
+          "evidence": "search_runs / results / traces"
+        },
+        {
+          "flow": "audit",
+          "step": 1,
+          "name": "从结果进入Trace",
+          "operation": "查query、检索模式、实际候选量及每路原始分数。",
+          "evidence": "trace_id"
+        },
+        {
+          "flow": "audit",
+          "step": 2,
+          "name": "固定计算输入",
+          "operation": "查询坐标与候选向量均可读取；校对model/revision/预处理指纹。",
+          "evidence": "768维坐标 / fingerprint"
+        },
+        {
+          "flow": "audit",
+          "step": 3,
+          "name": "复算相似度",
+          "operation": "按同维度、同归一化口径计算点积或余弦；检查浮点容差。",
+          "evidence": "score replay"
+        },
+        {
+          "flow": "audit",
+          "step": 4,
+          "name": "回溯素材与采样",
+          "operation": "核对源文件哈希、8帧实际图像、帧号和名义时间。",
+          "evidence": "source SHA / frame metadata"
+        },
+        {
+          "flow": "audit",
+          "step": 5,
+          "name": "界定结论",
+          "operation": "判断链路与计算是否一致；人工相关性、动作理解仍需独立标注。",
+          "evidence": "工程可追溯 ≠ 模型机制解释"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.257616+00:00",
+        "files": [
+          "omniembed/demo_import.py",
+          "omniembed/demo_engine.py",
+          "omniembed/demo_store.py"
+        ],
+        "description": "三个实现流程的逐阶段说明；是代码审查后的流程图，不是实时任务状态。",
+        "caveats": [],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "inventory": {
+      "rows": [
+        {
+          "kind": "原始封面",
+          "count": 100,
+          "unit": "张",
+          "meaning": "100条素材均可用"
+        },
+        {
+          "kind": "原始视频",
+          "count": 99,
+          "unit": "段",
+          "meaning": "1条素材缺视频，保留其他可用模态"
+        },
+        {
+          "kind": "采样帧",
+          "count": 792,
+          "unit": "张",
+          "meaning": "99段视频各8帧，属于派生图像"
+        },
+        {
+          "kind": "cover向量",
+          "count": 100,
+          "unit": "条",
+          "meaning": "每封面一条768维float32向量"
+        },
+        {
+          "kind": "visual向量",
+          "count": 99,
+          "unit": "条",
+          "meaning": "每段有序帧联合编码一条；没有逐帧索引"
+        },
+        {
+          "kind": "text向量",
+          "count": 100,
+          "unit": "条",
+          "meaning": "每条素材历史词的document表示"
+        },
+        {
+          "kind": "有效向量合计",
+          "count": 299,
+          "unit": "条",
+          "meaning": "裸BLOB合计918528字节；不含DB开销与媒体"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.258448+00:00",
+        "files": [
+          "data/local-demo/demo.sqlite3",
+          "data/system-summary-20261018/demo-evidence.json"
+        ],
+        "description": "2026-10-18只读素材快照；有效向量按模型revision及active过滤。",
+        "caveats": [
+          "ready100不代表视频齐全；warning100主要是缺少原始人工标题，不是100个失败任务。"
+        ],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "schema": {
+      "rows": [
+        {
+          "table": "datasets",
+          "role": "来源包与原始根元数据",
+          "fields": "source_sha256、source_type、summary"
+        },
+        {
+          "table": "assets",
+          "role": "一条逻辑素材及可用媒体",
+          "fields": "dataset_id、source_id、关键词、状态、原记录"
+        },
+        {
+          "table": "artifacts",
+          "role": "派生采样帧的文件与来源",
+          "fields": "asset_id、path、hash、preprocessing、采样信息"
+        },
+        {
+          "table": "embeddings",
+          "role": "各类各版本的真实向量",
+          "fields": "kind、model、revision、dtype、fingerprint、BLOB、active"
+        },
+        {
+          "table": "jobs",
+          "role": "一次导入或编码任务",
+          "fields": "params、progress、control、result、error"
+        },
+        {
+          "table": "stages",
+          "role": "每素材每阶段的最新状态",
+          "fields": "asset_id + stage、status、elapsed_ms、trace_id"
+        },
+        {
+          "table": "traces",
+          "role": "每次执行的历史事件",
+          "fields": "query坐标、分阶段耗时、错误与版本身份"
+        },
+        {
+          "table": "search_runs",
+          "role": "与Trace关联的检索记录",
+          "fields": "mode、query、candidate_count、timings、results"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.258454+00:00",
+        "files": [
+          "omniembed/demo_store.py"
+        ],
+        "description": "当前Demo的8张SQLite表职责；stages是最新状态，历史需看traces。",
+        "caveats": [],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "routes": {
+      "rows": [
+        {
+          "mode": "visual",
+          "input": "有序视频帧向量",
+          "candidate_count": 99,
+          "gpu": "查询编码一次",
+          "score": "Exact float32 normalized dot product against native video gallery"
+        },
+        {
+          "mode": "cover",
+          "input": "封面向量",
+          "candidate_count": 100,
+          "gpu": "查询编码一次",
+          "score": "Exact normalized dot product against cover gallery"
+        },
+        {
+          "mode": "text",
+          "input": "历史词文档向量",
+          "candidate_count": 100,
+          "gpu": "查询编码一次",
+          "score": "Exact normalized dot product against historical-keyword document gallery"
+        },
+        {
+          "mode": "keyword",
+          "input": "本地BM25关键词",
+          "candidate_count": 100,
+          "gpu": "无需",
+          "score": "BM25 k1=1.2 b=.75; CJK unigrams+bigrams and ASCII words"
+        },
+        {
+          "mode": "hybrid",
+          "input": "四路RRF融合",
+          "candidate_count": 100,
+          "gpu": "查询编码一次",
+          "score": "RRF sum[1/(60+rank_r)] with route rank cutoff100; no learned weights or calibrated probabilities"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.258462+00:00",
+        "files": [
+          "omniembed/demo_engine.py",
+          "data/system-summary-20261018/demo-evidence.json"
+        ],
+        "description": "本次素材库5种文字查询模式；图片查询仅支持cover/visual。",
+        "caveats": [],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "quality": {
+      "rows": [
+        {
+          "task": "SciFact（英文科学文献）",
+          "queries": 300,
+          "corpus": 5183,
+          "metric_name": "nDCG@10",
+          "metric_value": 0.8507501726885551,
+          "caveat": "全量5183候选/300测试查询；部署SearchQuery前缀；2篇非正例受API字符限制截断。"
+        },
+        {
+          "task": "Belebele（简体中文）",
+          "queries": 900,
+          "corpus": 488,
+          "metric_name": "nDCG@10",
+          "metric_value": 0.9390245629928998,
+          "caveat": "488小候选池；question→passage检索，不是阅读理解准确率；中英同源，非独立泛化证据。"
+        },
+        {
+          "task": "Belebele（英文）",
+          "queries": 900,
+          "corpus": 488,
+          "metric_name": "nDCG@10",
+          "metric_value": 0.9454707858946846,
+          "caveat": "488小候选池；question→passage检索，不是跨语言检索；中英同源，非独立泛化证据。"
+        },
+        {
+          "task": "中文视频标题20K（纯文本）",
+          "queries": 500,
+          "corpus": 20000,
+          "metric_name": "nDCG@10",
+          "metric_value": 0.7342601277826598,
+          "caveat": "20000候选/500查询固定子集；输入文字标题/描述，无视频帧；非完整C-MTEB榜单。"
+        },
+        {
+          "task": "COCO Modality 120（文字→图像）",
+          "queries": 120,
+          "corpus": 120,
+          "metric_name": "nDCG@10",
+          "metric_value": 0.9757110443827556,
+          "caveat": "仅120图/120caption的英文小规模模态诊断；不是标准COCO1K/5K；与COCO5K同源。"
+        },
+        {
+          "task": "MSR-VTT 128（文字→视频，扩展caption）",
+          "queries": 2345,
+          "corpus": 128,
+          "metric_name": "nDCG@10",
+          "metric_value": 0.8443856562454326,
+          "caveat": "固定128真实视频，每视频8帧；此行是2345条扩展caption协议，非完整1K-A。严格官方单caption补充另有128查询，其Hit@10=92.1875%；两者不可混用。"
+        },
+        {
+          "task": "COCO5K（文字→图像）",
+          "queries": 24809,
+          "corpus": 5000,
+          "metric_name": "nDCG@10",
+          "metric_value": 0.7006530910376282,
+          "caveat": "固定MTEB/M-BEIR全量5000图/24809英文查询，保留多正例；协议不同于部分传统COCO报告；未量化中文图文业务质量。"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.262029+00:00",
+        "files": [
+          "data/autodl-evaluation-20261018/reviewed-analysis.json",
+          "data/system-summary-20261018/compact-quality-rows.json"
+        ],
+        "description": "7个任务的主结果forward768；均为对应固定候选池上的nDCG@10。",
+        "caveats": [
+          "不同任务的数值不能直接排序比较模型能力；中英Belebele与两份COCO来源重叠。",
+          "英文图文和视频标注不能代表中文业务；视频128候选不是完整1K-A。"
+        ],
+        "metricDefinitions": [
+          {
+            "label": "nDCG@10",
+            "definition": "前10位的折损累计相关性按理想排序归一化；0–1，越高越好，不是准确率。",
+            "componentIds": [
+              "table-quality"
+            ]
+          }
+        ],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "hybrid": {
+      "rows": [
+        {
+          "task": "SciFact（英文科学文献）",
+          "queries": 300,
+          "corpus": 5183,
+          "metric_name": "nDCG@10",
+          "dense768": 0.8507501726885554,
+          "char_tfidf_rrf": 0.7704322635779787,
+          "delta_pp": -8.031790911057668,
+          "protocol": "768维精确余弦 + 字符2–4gram TF-IDF，两路各top100，等权RRF k=60；固定探索性对照。",
+          "caveat": "与Demo的visual/cover/text/keyword四路RRF不是同一实验。该参数在此任务下降，不等于所有混合检索无效；TF-IDF不是BM25。",
+          "source": "data/autodl-evaluation-20261018/hybrid-results.json"
+        },
+        {
+          "task": "中文视频标题20K（纯文本）",
+          "queries": 500,
+          "corpus": 20000,
+          "metric_name": "nDCG@10",
+          "dense768": 0.734260127782659,
+          "char_tfidf_rrf": 0.7073109537697768,
+          "delta_pp": -2.6949174012882215,
+          "protocol": "768维精确余弦 + 字符2–4gram TF-IDF，两路各top100，等权RRF k=60；固定探索性对照。",
+          "caveat": "与Demo的visual/cover/text/keyword四路RRF不是同一实验。该参数在此任务下降，不等于所有混合检索无效；TF-IDF不是BM25。",
+          "source": "data/autodl-evaluation-20261018/hybrid-results.json"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.266313+00:00",
+        "files": [
+          "data/autodl-evaluation-20261018/hybrid-results.json"
+        ],
+        "description": "固定两路dense+字符TF-IDF的探索性RRF；不是本地Demo四路RRF。",
+        "caveats": [
+          "RRF不保证更优；此参数下的损失不能推导所有融合无效。"
+        ],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "capacity": {
+      "rows": [
+        {
+          "concurrency": "并发1",
+          "success_rps": 18.064187,
+          "successes": 271,
+          "attempts": 271,
+          "rejected_429_pct": 0.0
+        },
+        {
+          "concurrency": "并发2",
+          "success_rps": 17.834526,
+          "successes": 268,
+          "attempts": 1221,
+          "rejected_429_pct": 78.05077805077805
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.266325+00:00",
+        "files": [
+          "data/autodl-evaluation-20261018/performance/public-load/summary.json",
+          "data/system-summary-20261018/evaluation-evidence.json"
+        ],
+        "description": "公网短query约16字符、batch1、768维，已热身，约15秒单轮固定并发短测。",
+        "caveats": [
+          "展示成功请求/秒，不是全部尝试/秒；有限素材与窗口，不是SLA。"
+        ],
+        "metricDefinitions": [
+          {
+            "label": "有效吞吐",
+            "definition": "成功并通过向量校验的HTTP请求数/测量秒数。",
+            "componentIds": [
+              "chart-capacity",
+              "table-capacity"
+            ],
+            "formula": "validated_successes / elapsed_seconds"
+          },
+          {
+            "label": "429比例",
+            "definition": "HTTP429次数/全部请求尝试；并发2为953/1221。",
+            "componentIds": [
+              "table-capacity"
+            ]
+          }
+        ],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "soak": {
+      "rows": [
+        {
+          "workload": "图片 · 512×288 JPEG",
+          "raw_workload": "image_512x288_real_jpeg",
+          "requests": 3911,
+          "successes": 3911,
+          "p50_ms": 81.179,
+          "p95_ms": 112.269,
+          "p99_ms": 170.7777
+        },
+        {
+          "workload": "文字256字符 · 每批4条",
+          "raw_workload": "text_256chars_bs4",
+          "requests": 3911,
+          "successes": 3911,
+          "p50_ms": 66.921,
+          "p95_ms": 82.166,
+          "p99_ms": 142.2289000000003
+        },
+        {
+          "workload": "文字64字符 · 每批1条",
+          "raw_workload": "text_64chars_bs1",
+          "requests": 3911,
+          "successes": 3911,
+          "p50_ms": 44.772,
+          "p95_ms": 58.3555,
+          "p99_ms": 107.8904
+        },
+        {
+          "workload": "视频2帧 · 每帧512×288",
+          "raw_workload": "video_2frames_512x288_real_jpeg",
+          "requests": 3910,
+          "successes": 3910,
+          "p50_ms": 82.62450000000001,
+          "p95_ms": 118.49164999999996,
+          "p99_ms": 176.56080999999992
+        },
+        {
+          "workload": "视频8帧 · 每帧512×288",
+          "raw_workload": "video_8frames_512x288_real_jpeg",
+          "requests": 3910,
+          "successes": 3910,
+          "p50_ms": 158.5375,
+          "p95_ms": 227.42454999999998,
+          "p99_ms": 304.6879799999999
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.266338+00:00",
+        "files": [
+          "data/autodl-evaluation-20261018/stability-analysis.json"
+        ],
+        "description": "单在途、30分钟、固定五类负载轮换的历史稳定性窗口；各类的成功请求HTTP延迟。",
+        "caveats": [
+          "30 minutes of repeated fixed inputs, one run; no 24-hour SLA or independent repeated-run estimate.",
+          "The media workload repeats one real image and ordered frames from one fixed video; quality diversity is evaluated separately.",
+          "Client preparation, MP4 extraction, object storage, ANN indexing, RAG and application latency are not included.",
+          "Memory summaries and slopes describe this window only. Allocator caches, input size, and process memory may change; this is not a proof of absence of leaks.",
+          "Whole-experiment telemetry also includes quality encoding and expanding batches; its first/last memory values must not be interpreted as a soak leak test.",
+          "No deliberate crash, network partition, OOM, worker restart, or power-cycle was injected into the live instance."
+        ],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "trace_timing": {
+      "rows": [
+        {
+          "stage": "查询编码及适配",
+          "elapsed_ms": 124.78233300498687
+        },
+        {
+          "stage": "候选装载与精确打分",
+          "elapsed_ms": 8.587165997596458
+        },
+        {
+          "stage": "排序与卡片读取",
+          "elapsed_ms": 285.21154102054425
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.266342+00:00",
+        "files": [
+          "data/local-demo/demo.sqlite3",
+          "data/system-summary-20261018/demo-evidence.json"
+        ],
+        "description": "既有一次visual检索Trace耗时分解，总计418.744625ms；各阶段与总计存在少量未归类开销。",
+        "caveats": [
+          "单次观察，不估计p95或容量；未据此证明数据库是瓶颈。"
+        ],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "jobs": {
+      "rows": [
+        {
+          "task": "导入100条素材",
+          "elapsed_s": 11.345,
+          "scope": "真实既有一次任务墙钟时间"
+        },
+        {
+          "task": "首次构建三路向量",
+          "elapsed_s": 138.949,
+          "scope": "100条素材，299个真实向量；非独立吞吐压测"
+        },
+        {
+          "task": "后续复用已有结果续跑",
+          "elapsed_s": 11.422,
+          "scope": "相同输入复用；不等于重算一遍的编码速度"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.266344+00:00",
+        "files": [
+          "data/local-demo/demo.sqlite3",
+          "data/system-summary-20261018/demo-evidence.json"
+        ],
+        "description": "既有jobs的finished_at-started_at；三个任务不同，不构成同协议加速比实验。",
+        "caveats": [],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "case": {
+      "rows": [
+        {
+          "source_id": "sample-001",
+          "query": "聚光灯下的舞台表演",
+          "dimension": 768,
+          "video_duration_s": 11.4666666,
+          "original_frames": 344,
+          "sampled_frames": 8,
+          "fps": 30.000000174418606,
+          "cover_width": 360,
+          "cover_height": 640,
+          "model": "google/embeddinggemma-2",
+          "revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+          "raw_vector_bytes": 3072,
+          "independent_case_n": 1,
+          "candidate_count": 99,
+          "selected_rank": 1,
+          "observed_dot32": 0.725134015083313,
+          "inference_dtype": "bfloat16",
+          "storage_dtype": "float32",
+          "audio_included": false,
+          "time_fields_sent": false
+        }
+      ],
+      "source": {
+        "provider": "Local reviewed files + read-only SQLite trace",
+        "executedAt": "2026-10-18T08:47:21.442737+00:00",
+        "files": [
+          "data/local-demo/validation/embedding-explainer-evidence.json",
+          "omniembed/demo_engine.py",
+          "omniembed/inference.py",
+          "omniembed/encoder.py"
+        ],
+        "evidenceFlow": [
+          {
+            "title": "固定样本与已有查询",
+            "detail": "选取 source_id sample-001，读取已保存 query trace_3d9d39210c1a498ab18d79326e9f0fe4；本轮不调用GPU。"
+          },
+          {
+            "title": "独立数值复算",
+            "detail": "将已保存的float32坐标转换为float64，计算余弦、范数及float32点积误差。"
+          }
+        ],
+        "caveats": [
+          "单样本，且样本来自已有查询的事后Top1选择；不能估计检索准确率。",
+          "封面和视频属于同一条素材，三对相似度不是三个独立样本。",
+          "名义时间为帧号除FPS；变帧率和解码定位可能产生误差。"
+        ],
+        "description": "单一样本元数据与处理配置。",
+        "links": [
+          {
+            "label": "EmbeddingGemma2 model documentation",
+            "url": "https://huggingface.co/docs/transformers/en/model_doc/embedding_gemma2"
+          },
+          {
+            "label": "Sentence Transformers similarity",
+            "url": "https://sbert.net/docs/sentence_transformer/usage/semantic_textual_similarity.html"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "读取经过核验的本地JSON；保留完整坐标与来源，按文中公式复算。"
+        }
+      ]
+    },
+    "frames": {
+      "rows": [
+        {
+          "index": 0,
+          "source_frame_index": 21,
+          "timestamp_s": 0.6999999959302325,
+          "width": 288,
+          "height": 512,
+          "sha256": "5ba2e399df9bffefb1af54a2012a23ffcbda94f64590c852723d4e72baec86b7",
+          "decoder_position_ms": 700.0,
+          "decoder_delta_ms": 4.06976744216081e-06
+        },
+        {
+          "index": 1,
+          "source_frame_index": 64,
+          "timestamp_s": 2.1333333209302325,
+          "width": 288,
+          "height": 512,
+          "sha256": "9859a5bdfd5f411939a476244e203287dc06d5ce8f83b647bc5ec1696a094eeb",
+          "decoder_position_ms": 2133.3333,
+          "decoder_delta_ms": -2.093023294946761e-05
+        },
+        {
+          "index": 2,
+          "source_frame_index": 107,
+          "timestamp_s": 3.5666666459302325,
+          "width": 288,
+          "height": 512,
+          "sha256": "5f22e3d7667de2cb9ca258b7f624b0905cd8c6f5486acbff849c085be8655783",
+          "decoder_position_ms": 3566.6666999999998,
+          "decoder_delta_ms": 5.406976742960978e-05
+        },
+        {
+          "index": 3,
+          "source_frame_index": 150,
+          "timestamp_s": 4.999999970930233,
+          "width": 288,
+          "height": 512,
+          "sha256": "1cd96c48e8a6bad5558a4ae1ca42df271a1d7e646aa4b364fa7fde3dd4811ade",
+          "decoder_position_ms": 5000.0,
+          "decoder_delta_ms": 2.9069767151668202e-05
+        },
+        {
+          "index": 4,
+          "source_frame_index": 193,
+          "timestamp_s": 6.4333332959302325,
+          "width": 288,
+          "height": 512,
+          "sha256": "0675bea360efa56a114c66f70ec4e55e6903a3c027f3f3efacb8f990f1261920",
+          "decoder_position_ms": 6433.3333,
+          "decoder_delta_ms": 4.069767783221323e-06
+        },
+        {
+          "index": 5,
+          "source_frame_index": 236,
+          "timestamp_s": 7.866666620930233,
+          "width": 288,
+          "height": 512,
+          "sha256": "e63788da3a9e74172f4337ad3627d9876b543b8c1a9f561888b5e04141d5e0d0",
+          "decoder_position_ms": 7866.6667,
+          "decoder_delta_ms": 7.906976679805666e-05
+        },
+        {
+          "index": 6,
+          "source_frame_index": 279,
+          "timestamp_s": 9.299999945930233,
+          "width": 288,
+          "height": 512,
+          "sha256": "6be49aa74f03aaddf3e62f9342bad58b1f05d462958cc51580f36d69c6d88eb5",
+          "decoder_position_ms": 9333.3333,
+          "decoder_delta_ms": 33.333354069767665
+        },
+        {
+          "index": 7,
+          "source_frame_index": 322,
+          "timestamp_s": 10.733333270930233,
+          "width": 288,
+          "height": 512,
+          "sha256": "f985bd4761720e95baab773096bbb1f8332b75e2ceb62481c16a152940dd5f23",
+          "decoder_position_ms": 10766.6667,
+          "decoder_delta_ms": 33.33342906976759
+        }
+      ],
+      "source": {
+        "provider": "Local reviewed files + read-only SQLite trace",
+        "executedAt": "2026-10-18T08:47:21.442737+00:00",
+        "files": [
+          "data/local-demo/validation/embedding-explainer-evidence.json",
+          "omniembed/demo_engine.py",
+          "omniembed/inference.py",
+          "omniembed/encoder.py"
+        ],
+        "evidenceFlow": [
+          {
+            "title": "固定样本与已有查询",
+            "detail": "选取 source_id sample-001，读取已保存 query trace_3d9d39210c1a498ab18d79326e9f0fe4；本轮不调用GPU。"
+          },
+          {
+            "title": "独立数值复算",
+            "detail": "将已保存的float32坐标转换为float64，计算余弦、范数及float32点积误差。"
+          }
+        ],
+        "caveats": [
+          "单样本，且样本来自已有查询的事后Top1选择；不能估计检索准确率。",
+          "封面和视频属于同一条素材，三对相似度不是三个独立样本。",
+          "名义时间为帧号除FPS；变帧率和解码定位可能产生误差。"
+        ],
+        "description": "8张真实采样帧的来源帧号与名义时间。",
+        "links": [
+          {
+            "label": "EmbeddingGemma2 model documentation",
+            "url": "https://huggingface.co/docs/transformers/en/model_doc/embedding_gemma2"
+          },
+          {
+            "label": "Sentence Transformers similarity",
+            "url": "https://sbert.net/docs/sentence_transformer/usage/semantic_textual_similarity.html"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "读取经过核验的本地JSON；保留完整坐标与来源，按文中公式复算。"
+        }
+      ]
+    },
+    "similarity": {
+      "rows": [
+        {
+          "pair": "文字—视频",
+          "cosine64": 0.7251340904616845,
+          "dot32": 0.725134015083313,
+          "absolute_error": 7.537837154458771e-08,
+          "l2": 0.7414390083082801,
+          "angle_degrees": 43.51999627971079
+        },
+        {
+          "pair": "文字—封面",
+          "cosine64": 0.6641123173579501,
+          "dot32": 0.6641122102737427,
+          "absolute_error": 1.0708420739025115e-07,
+          "l2": 0.8196190247917229,
+          "angle_degrees": 48.385739208582734
+        },
+        {
+          "pair": "封面—视频",
+          "cosine64": 0.8960773505347962,
+          "dot32": 0.8960773348808289,
+          "absolute_error": 1.5653967344597675e-08,
+          "l2": 0.455900538847806,
+          "angle_degrees": 26.35285087454166
+        }
+      ],
+      "source": {
+        "provider": "Local reviewed files + read-only SQLite trace",
+        "executedAt": "2026-10-18T08:47:21.442737+00:00",
+        "files": [
+          "data/local-demo/validation/embedding-explainer-evidence.json",
+          "omniembed/demo_engine.py",
+          "omniembed/inference.py",
+          "omniembed/encoder.py",
+          "data/embedding-paper-20261018/analysis/numeric-analysis.json"
+        ],
+        "evidenceFlow": [
+          {
+            "title": "固定样本与已有查询",
+            "detail": "选取 source_id sample-001，读取已保存 query trace_3d9d39210c1a498ab18d79326e9f0fe4；本轮不调用GPU。"
+          },
+          {
+            "title": "独立数值复算",
+            "detail": "将已保存的float32坐标转换为float64，计算余弦、范数及float32点积误差。"
+          }
+        ],
+        "caveats": [
+          "单样本，且样本来自已有查询的事后Top1选择；不能估计检索准确率。",
+          "封面和视频属于同一条素材，三对相似度不是三个独立样本。",
+          "名义时间为帧号除FPS；变帧率和解码定位可能产生误差。"
+        ],
+        "description": "三个固定向量的余弦与float32点积；不是独立重复试验。",
+        "metricDefinitions": [
+          {
+            "label": "余弦相似度",
+            "definition": "对固定float32保存坐标提升为float64后重新归一化计算。",
+            "formula": "dot(x,y)/(norm(x)*norm(y))",
+            "componentIds": [
+              "system-case"
+            ],
+            "dependencies": [
+              "x",
+              "y"
+            ]
+          }
+        ],
+        "links": [
+          {
+            "label": "EmbeddingGemma2 model documentation",
+            "url": "https://huggingface.co/docs/transformers/en/model_doc/embedding_gemma2"
+          },
+          {
+            "label": "Sentence Transformers similarity",
+            "url": "https://sbert.net/docs/sentence_transformer/usage/semantic_textual_similarity.html"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "读取经过核验的本地JSON；保留完整坐标与来源，按文中公式复算。"
+        }
+      ]
+    },
+    "contracts": {
+      "rows": [
+        {
+          "operation": "文字查询",
+          "endpoint": "POST /v1/embeddings",
+          "payload": "JSON input + input_type=query + dimensions",
+          "result": "每条文字一条向量"
+        },
+        {
+          "operation": "入库文字",
+          "endpoint": "POST /v1/embeddings",
+          "payload": "JSON input + input_type=document；可选等长titles",
+          "result": "每条文档一条向量"
+        },
+        {
+          "operation": "封面/图片",
+          "endpoint": "POST /v1/embeddings/image",
+          "payload": "multipart字段file；dimensions用URL参数",
+          "result": "一张静态图一条向量"
+        },
+        {
+          "operation": "视频帧序列",
+          "endpoint": "POST /v1/embeddings/video",
+          "payload": "重复multipart字段files，1–8张同尺寸有序帧",
+          "result": "整个序列联合得到一条向量"
+        },
+        {
+          "operation": "轻量存活/就绪",
+          "endpoint": "GET /health/live、GET /health/ready",
+          "payload": "live免鉴权，其他均需独立推理Bearer Key",
+          "result": "HTTP能响应 / 模型状态"
+        },
+        {
+          "operation": "真实推理探针",
+          "endpoint": "POST /health/inference",
+          "payload": "带鉴权；占用共享推理槽",
+          "result": "实际编码并校验768维输出"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.267944+00:00",
+        "files": [
+          "omniembed/inference.py",
+          "docs/examples/embeddinggemma_client.py"
+        ],
+        "description": "当前云端独立推理API契约；不同于README中旧8770业务API。",
+        "caveats": [],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "deployment": {
+      "rows": [
+        {
+          "topic": "model_identity",
+          "status": "historically_verified",
+          "statement": "google/embeddinggemma-2，固定revision 914f7f89142e33e77833254d9c9b90c3cef7303b；CUDA BF16推理。",
+          "caveat": "本次只读审阅已有记录，不代表报告生成时实时状态。"
+        },
+        {
+          "topic": "hardware",
+          "status": "historically_verified",
+          "statement": "AutoDL Pro北京bj-B2，单张NVIDIA GeForce RTX 5090；可见显存32607MiB，容器cgroup内存96636764160字节、CPU配额25核；不是共享宿主机208可见CPU亲和数。PyTorch2.11.0+cu128、CUDA12.8、驱动580.76.05。",
+          "caveat": ""
+        },
+        {
+          "topic": "price",
+          "status": "historical_price_snapshot",
+          "statement": "历史记录GPU单价¥2.88/小时，系统盘基础费¥0.10/天，连续24小时按此价约¥69.22。用户授权更换规格费用上限¥8/小时。",
+          "caveat": "价格是当日快照，不是当前报价或账单。停止模型进程不停止实例计费。"
+        },
+        {
+          "topic": "service_separation",
+          "status": "implemented",
+          "statement": "云端仅提供鉴权推理；不包含SQLite、素材导入或业务检索。业务Web与GPU推理解耦。内部6006、单uvicorn worker。",
+          "caveat": ""
+        },
+        {
+          "topic": "latest_retained_cloud_ready",
+          "status": "historically_verified",
+          "statement": "最新本地保留的运维终验为2026-10-18T06:25:32.463226Z（北京时间14:25:32），HTTP200、ready=true、status=ok；当次交付前后boot_id相同。",
+          "caveat": "此后Demo可能仍使用过服务，但不能由此把14:25记录当实时探活；本次未发公网请求。"
+        },
+        {
+          "topic": "authentication",
+          "status": "implemented_and_historically_verified",
+          "statement": "除GET /health/live外均要求Authorization: Bearer <独立推理密钥>。AutoDL开发者账户Token与推理密钥不同。",
+          "caveat": ""
+        },
+        {
+          "topic": "text_contract",
+          "status": "implemented",
+          "statement": "POST /v1/embeddings，application/json；input为字符串或列表，input_type=query|document，dimensions=128|256|512|768（默认768），仅document支持与input等长的titles。query连titles:null也不能携带。",
+          "caveat": ""
+        },
+        {
+          "topic": "compatibility_boundary",
+          "status": "implemented",
+          "statement": "独立云推理接口不接受model/task/encoding_format等额外字段，没有/v1/models或/v1/embedding，不使用X-API-Key；不是可无修改接入的OpenAI SDK服务。",
+          "caveat": "README关于原8770业务API的OpenAI兼容示例不可直接套到云端推理服务。"
+        },
+        {
+          "topic": "text_limits",
+          "status": "implemented",
+          "statement": "每请求1–16条，每条最多8192字符，title最多1024字符，整批正文+标题≤32768字符，JSON体≤256KiB；这是字符/字节限制而非8192-token上下文。",
+          "caveat": ""
+        },
+        {
+          "topic": "image_contract",
+          "status": "implemented",
+          "statement": "POST /v1/embeddings/image?dimensions=768，multipart字段file，一张JPEG/PNG/WebP静态图→一条向量。单文件≤10MiB，≤16000000像素。",
+          "caveat": ""
+        },
+        {
+          "topic": "video_contract",
+          "status": "implemented",
+          "statement": "POST /v1/embeddings/video?dimensions=768，重复multipart字段files，1–8张按时间顺序且同宽高静态帧，堆叠[T,H,W,3]；整个帧序列→一条视频向量。总文件≤32MiB、总像素≤32000000。",
+          "caveat": "不是MP4直传；API吞吐不含视频下载/解码/抽帧；没有音频编码或语音转写；视频输入未显式传真实时间戳或FPS。"
+        },
+        {
+          "topic": "task_preprocessing",
+          "status": "implemented",
+          "statement": "query自动添加task: search result | query: 前缀，document封装为title: ... | text: ...；图片/视频按原生多模态输入。",
+          "caveat": ""
+        },
+        {
+          "topic": "output_validation",
+          "status": "implemented",
+          "statement": "服务将原生768维转换为float32并校验shape、有限值、非零及单位范数，再截断到目标维度并重新L2归一化。响应含data[].index/embedding、model、model_revision、dimensions、boot_id。",
+          "caveat": ""
+        },
+        {
+          "topic": "boot_id",
+          "status": "implemented",
+          "statement": "boot_id是模型服务进程生命周期标识，可识别重启；不是机器ID、内容ID或应纳入内容缓存的模型身份。",
+          "caveat": ""
+        },
+        {
+          "topic": "inference_capacity",
+          "status": "implemented_and_historically_verified",
+          "statement": "共享GPU推理槽=1；锁忙快速返回429，Retry-After=2；未就绪503，Retry-After=10；HTTP文本batch16与内部encoder微批4是不同概念。",
+          "caveat": ""
+        },
+        {
+          "topic": "recommended_dispatcher",
+          "status": "recommended_not_applied_globally",
+          "statement": "所有在线query、离线入库、图片/视频、真实POST推理探针应共用实例级有界队列，max_inflight=1，在线查询优先，等待时限按业务总延迟预算。",
+          "caveat": "当前示例客户端只保证同一对象串行；RemoteEncoder只锁同一对象；多个进程分别限1仍会碰撞。没有把建议JSON应用成生产统一调度系统。"
+        },
+        {
+          "topic": "query_capacity_guidance",
+          "status": "historically_measured_and_recommended",
+          "statement": "在线文字batch1，从10QPS起灰度、10–12QPS为校准区间。固定约16字符query、768维、单轮20秒。",
+          "caveat": "不泛化到长文本、媒体、突发、多地域或混合流量；22到达RPS全部完成但23.67秒排空，有效18.59QPS、端到端p95约3.30秒，不能宣称稳定22QPS。"
+        },
+        {
+          "topic": "concurrency_collision",
+          "status": "historically_measured",
+          "statement": "短query并发1约18.06成功请求/秒，无429；并发2约17.83成功请求/秒、约78.05%被429拒绝。",
+          "caveat": "实测窗口与素材有限；加worker会复制模型且无法沿用当前进程锁，不能直接作为扩容方案。"
+        },
+        {
+          "topic": "document_guidance",
+          "status": "historically_measured_and_recommended",
+          "statement": "离线document同样单在途，每批可从8条按长度分桶试起，符合预算时增至16；1024字符文档batch16记录为68.670956条/秒。",
+          "caveat": "不能推论所有长度都最优；HTTP16仍由内部微批4执行。"
+        },
+        {
+          "topic": "media_capacity",
+          "status": "historically_measured",
+          "statement": "固定512×288 JPEG短窗，公网单在途图片11.711034请求/秒，2帧视频9.382683，8帧视频5.936291。",
+          "caveat": "未验证开放到达率媒体容量；不含原MP4下载、解码、抽帧、转写。不得套用文字10–12QPS。"
+        },
+        {
+          "topic": "stability",
+          "status": "historically_measured",
+          "statement": "单在途闭环混合负载1800.074秒，19553次主推理全部通过向量校验，约10.8623成功请求/秒；另120次探活、60次锚点推理成功，59次锚点比较余弦均1，前后同boot且ready。",
+          "caveat": "固定五类近等比例与重复素材，30分钟不是24hSLA、开放流量容量、故障恢复或长期无泄漏证明。"
+        },
+        {
+          "topic": "resource_stability",
+          "status": "historically_measured",
+          "statement": "稳定性采样显存5975MiB不变，去除最初60秒后早期与末期5分钟RSS中位数差386KiB；8帧视频p95约227.42ms，最慢主请求958.443ms。",
+          "caveat": "采样未见增长不证明长期无泄漏；不承诺每次≤500ms。"
+        },
+        {
+          "topic": "dimension_policy",
+          "status": "recommended",
+          "statement": "默认768维；确有索引/传输预算再业务验证512维（裸float32少1/3），当前计算仍先得到768维再截断。query与候选必须同维度、同模型revision与预处理。",
+          "caveat": "512在COCO双向nDCG@10低约0.57/0.80个百分点，但效果依任务而异，降维不同比提升GPU吞吐；128不宜直接设默认。"
+        },
+        {
+          "topic": "saved_platform_image",
+          "status": "historically_verified",
+          "statement": "已有AutoDL私有系统镜像OmniEmbedding-Gemma2-20261018，状态finished，平台大小13754777600字节，保存时间2026-10-18 12:06:38+08:00；文档记录当前实例曾由此恢复。",
+          "caveat": "此镜像早于后来新增ops/backup工具。镜像含当时系统盘资料与凭据，保持私有；不保存GPU显存和进程，不锁定GPU库存。"
+        },
+        {
+          "topic": "saved_portable_archive",
+          "status": "historically_verified",
+          "statement": "应用归档已云端创建并复制本机：5339719671字节，48276成员，解压普通文件约9338082383字节；SHA256=5a7334d770db51d25065de01d558d794b0f6d238b23dcaa1c43bcb1e5fe4b49d。双端hash/member验证通过，白名单排除凭据，已做已知凭据扫描。",
+          "caveat": "完整Conda固定前缀+模型缓存+源码+runner+ops/backup脚本；不是AutoDL可导入系统镜像，也不是Docker镜像，不含本地业务DB/媒体/索引。"
+        },
+        {
+          "topic": "restore_verified_boundary",
+          "status": "partial_verification",
+          "statement": "已完成小型Linux夹具恢复、权限/符号链接/拒绝覆盖验证；单独CPU在禁外部socket下离线加载模型并产出一条768维文字向量。",
+          "caveat": "未做完整归档在独立GPU实例恢复、GPU离线冷启动、新ops生产stop/restart、平台关开机后的自启验收；无未完成pending检查不等于这些未验证项已通过。"
+        },
+        {
+          "topic": "daily_startup",
+          "status": "implemented_runbook",
+          "statement": "日常使用已安装环境：.conda/bin/python scripts/autodl_ops.py status/preflight/start；start已运行时幂等，不叠加worker。bootstrap为安装入口，不作日常启动。start成功仅代表启动请求，必须ready与真实推理验收。",
+          "caveat": ""
+        },
+        {
+          "topic": "lifecycle_operations",
+          "status": "implemented_not_exercised_full_restart",
+          "statement": "ops提供stop/restart及离线启动入口；基于PID/进程工作目录/监督锁检查，用SIGTERM并有超时，拒绝随意强杀陌生监听。stop不关云实例和计费。",
+          "caveat": "本轮历史交付未用新工具实际中断线上服务；start --offline-start不影响已存在进程。"
+        },
+        {
+          "topic": "supervisor",
+          "status": "implemented",
+          "statement": "runner每10秒检查ready；degraded/stalled、启动超时、退出或连续3次不可访问触发重启。15分钟内第5次失败监督退出，需人工查因。",
+          "caveat": "保护性退避，不等于无限自动恢复；没有做本次故障注入验收。"
+        },
+        {
+          "topic": "health_levels",
+          "status": "implemented_and_recommended",
+          "statement": "live仅表示HTTP可响应；ready检查模型状态但不推理；POST inference实际验证[1,768]、finite/nonzero/unitnorm并占共享槽。建议live30–60秒、ready30秒、deep启动后及低谷每5分钟。",
+          "caveat": "建议频率未创建新的未来巡检或告警任务；繁忙429不是模型故障。"
+        },
+        {
+          "topic": "client_safety_and_efficiency",
+          "status": "implemented",
+          "statement": "示例客户端保留TLS验证，禁环境代理/.netrc/重定向，检查模型revision、shape/finite/unitnorm，同对象单在途与默认最多8等待；120秒总预算含排队HTTP及429重试，最多3次，仅429遵守Retry-After+抖动，传输超时不自动重放。",
+          "caveat": "对象锁不等于跨进程实例级队列；用户的业务延迟目标可能需更短总预算。"
+        },
+        {
+          "topic": "next_architecture_steps",
+          "status": "recommended",
+          "statement": "优先统一调度器/有界队列、缓存身份与增量入库、在线/离线优先级。长期视频按片段存source_id与起止时间，语音需单独转写。扩容前先用真实混合业务验证。",
+          "caveat": "建议项，不是声称已有动态合批、片段索引、语音检索或生产容灾。"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.267914+00:00",
+        "files": [
+          "data/system-summary-20261018/deployment-evidence.json",
+          "docs/AUTODL_OPERATIONS.html",
+          "omniembed/inference.py"
+        ],
+        "description": "32项固定版本、运行契约、环境归档与运维核查；状态区分历史验收与建议。",
+        "caveats": [
+          "未执行本轮公网深探针或云资源写操作；历史ready不等于实时SLA。"
+        ],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "galaxy": {
+      "rows": [
+        {
+          "kind": "visual",
+          "nodes": 99,
+          "explained_variance_pc1": 0.05942450331277086,
+          "explained_variance_pc2": 0.049824089462461064,
+          "explained_variance_total_pct": 10.924859277523193,
+          "method": "PCA/SVD",
+          "edge_policy": "For each node choose one positive-cosine nearest neighbor in original 768-D, deduplicate undirected edges"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.267922+00:00",
+        "files": [
+          "omniembed/demo_engine.py",
+          "data/system-summary-20261018/demo-evidence.json"
+        ],
+        "description": "只读GET visual Galaxy的解释方差与实现；不是相关性评测。",
+        "caveats": [],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "validation": {
+      "rows": [
+        {
+          "check": "Demo API断言",
+          "result": "201项通过",
+          "scope": "41个HTTP请求；功能、来源与分数复算"
+        },
+        {
+          "check": "Demo测试",
+          "result": "27 tests + 8 subtests通过",
+          "scope": "另有最终5项API检查通过"
+        },
+        {
+          "check": "SQLite",
+          "result": "integrity_check=ok；无外键违规",
+          "scope": "对应已保留审计快照"
+        },
+        {
+          "check": "重启持久化",
+          "result": "已通过",
+          "scope": "本机Demo进程恢复；不是GPU平台关开机验收"
+        },
+        {
+          "check": "浏览器限制",
+          "result": "部分交互未自动验证",
+          "scope": "Canvas坐标点击未验收；图片multipart用API检查"
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.267925+00:00",
+        "files": [
+          "data/local-demo/validation/DELIVERY.json",
+          "data/local-demo/validation/data-audit.json",
+          "data/local-demo/validation/e2e-api.json",
+          "data/local-demo/validation/browser-acceptance.json"
+        ],
+        "description": "已保存功能验收的适用范围；不包含人工相关性或SLA证明。",
+        "caveats": [],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    },
+    "performance_guidance": {
+      "rows": [
+        {
+          "workload": "在线短文字",
+          "policy": "实例级单在途；batch1；从10QPS灰度",
+          "observed": "10–12QPS为20秒模板试验起点，非SLA"
+        },
+        {
+          "workload": "离线1024字符文档",
+          "policy": "实例级单在途；HTTP批8起，预算内至16；内部微批4",
+          "observed_items_per_s": 68.670956
+        },
+        {
+          "workload": "512×288图片",
+          "policy": "共享同一推理槽；另行校准到达率",
+          "observed_request_per_s": 11.711034
+        },
+        {
+          "workload": "2帧视频",
+          "policy": "共享同一推理槽；不含原MP4下载抽帧",
+          "observed_request_per_s": 9.382683
+        },
+        {
+          "workload": "8帧视频",
+          "policy": "共享同一推理槽；不套用文字QPS",
+          "observed_request_per_s": 5.936291
+        }
+      ],
+      "source": {
+        "provider": "Reviewed local implementation, read-only SQLite and saved validation artifacts",
+        "executedAt": "2026-10-18T09:21:54.267930+00:00",
+        "files": [
+          "data/autodl-evaluation-20261018/recommended-client-settings.json",
+          "data/system-summary-20261018/evaluation-evidence.json"
+        ],
+        "description": "应用层建议与对应固定负载短测值；不是已安装的全局调度服务。",
+        "caveats": [],
+        "metricDefinitions": [],
+        "evidenceFlow": [
+          {
+            "title": "核对原始实现与保留记录",
+            "detail": "读取本地代码、既有评测JSON与只读SQLite；不新增GPU任务或云资源操作。"
+          },
+          {
+            "title": "整理展示口径",
+            "detail": "保留任务、分母、单位与局限；当前本地计数与历史云端评测明确区分。"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "language": "text",
+          "code": "按报告列选择已有审查证据；比例显示乘100，毫秒按原始口径保留；不合并不同候选池或测试协议。"
+        }
+      ]
+    }
+  },
+  "id": "report:535b014c-3f72-43d9-aeaa-3b96b7915ced",
+  "public_redacted": {
+    "source_id": "sample-001 is a public pseudonym; the original platform identifier is not published.",
+    "media": "Private cover and sampled-frame pixels are omitted from the public source; original measured values and media digests are retained."
+  }
+}

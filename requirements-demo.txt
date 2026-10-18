@@ -1,0 +1,10 @@
+# Local Web app + remote inference client. No model/PyTorch download is needed.
+# Tested with Python 3.12; use Python 3.11 or 3.12 for these NumPy wheels.
+fastapi==0.135.2
+uvicorn==0.24.0
+python-multipart==0.0.22
+pydantic==2.12.5
+httpx==0.28.1
+numpy==1.26.4
+opencv-python-headless==4.11.0.86
+pillow==11.0.0
