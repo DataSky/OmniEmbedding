@@ -44,9 +44,10 @@ MAX_RESPONSE_BYTES = 1024 * 1024
 class RemoteEncoderError(RuntimeError):
     """Sanitized error safe for the pipeline's persisted failure message."""
 
-    def __init__(self, message, status_code=503):
+    def __init__(self, message, status_code=503, *, http_status=None):
         super().__init__(message)
         self.status_code = status_code
+        self.http_status = http_status
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -194,13 +195,14 @@ class RemoteEncoder:
                     "Content-Type": content_type, "User-Agent": "omniembedding-remote/1",
                 })
                 retry_delay = None
+                status = None
                 try:
                     try:
                         response = self._opener.open(request, timeout=max(0.01, deadline - time.monotonic()))
                     except urllib.error.HTTPError as exc:
                         response = exc
+                    status = response.code
                     with response:
-                        status = response.code
                         if status == 429:
                             try:
                                 retry_delay = min(5.0, max(0.1, float(response.headers.get("Retry-After", "2"))))
@@ -213,25 +215,25 @@ class RemoteEncoder:
                             # Never include a server error body: it can echo
                             # submitted text, credentials or internal URLs.
                             if status in {401, 403}:
-                                raise RemoteEncoderError("远程推理鉴权失败；请检查密钥与访问权限")
+                                raise RemoteEncoderError("远程推理鉴权失败；请检查密钥与访问权限", http_status=status)
                             if 300 <= status < 400:
-                                raise RemoteEncoderError("远程推理返回重定向，已拒绝转发密钥")
-                            raise RemoteEncoderError(f"远程推理请求失败（HTTP {status}）")
+                                raise RemoteEncoderError("远程推理返回重定向，已拒绝转发密钥", http_status=status)
+                            raise RemoteEncoderError(f"远程推理请求失败（HTTP {status}）", http_status=status)
                         else:
                             raw = response.read(MAX_RESPONSE_BYTES + 1)
                 except (OSError, urllib.error.URLError, http.client.HTTPException, ValueError):
-                    raise RemoteEncoderError("无法连接远程推理服务或请求超时；未启用本机模型回退") from None
+                    raise RemoteEncoderError("无法连接远程推理服务或请求超时；未启用本机模型回退", http_status=status) from None
                 if retry_delay is not None:
                     if attempt == 2 or time.monotonic() + retry_delay >= deadline:
-                        raise RemoteEncoderError("远程推理繁忙，请稍后重试（HTTP 429）", status_code=429)
+                        raise RemoteEncoderError("远程推理繁忙，请稍后重试（HTTP 429）", status_code=429, http_status=429)
                     time.sleep(retry_delay)
                     continue
                 if len(raw) > MAX_RESPONSE_BYTES:
-                    raise RemoteEncoderError("远程推理响应超过大小限制")
+                    raise RemoteEncoderError("远程推理响应超过大小限制", http_status=200)
                 try:
                     value = json.loads(raw)
                 except (ValueError, UnicodeError, RecursionError):
-                    raise RemoteEncoderError("远程推理返回无效 JSON") from None
+                    raise RemoteEncoderError("远程推理返回无效 JSON", http_status=200) from None
                 vectors = self._vectors(value, rows)
                 self._loaded = True
                 return vectors
@@ -272,7 +274,7 @@ class RemoteEncoder:
             if not isinstance(boot, str) or not 1 <= len(boot) <= 128 or any(not (c.isalnum() or c in "_.:-") for c in boot):
                 raise ValueError
         except (ValueError, TypeError, KeyError, OverflowError):
-            raise RemoteEncoderError("远程向量校验失败（模型、版本、维度或单位向量异常）") from None
+            raise RemoteEncoderError("远程向量校验失败（模型、版本、维度或单位向量异常）", http_status=200) from None
         # Pin the first response revision for this client; silently mixing
         # model revisions in one index would make similarity scores unreliable.
         if self.revision is None:

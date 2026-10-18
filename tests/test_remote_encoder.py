@@ -3,9 +3,11 @@ from contextlib import ExitStack
 from email.parser import BytesParser
 from email.policy import default
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import http.client
 import io
 import json
 import threading
+import urllib.error
 
 import numpy as np
 from PIL import Image
@@ -149,6 +151,83 @@ def test_http_errors_are_sanitized(configured, status):
     assert "private" not in str(caught.value)
     assert client.last_error == str(caught.value) and not client.loaded
     assert caught.value.status_code == 503
+    assert caught.value.http_status == status
+
+
+@pytest.mark.parametrize("failure", ["incomplete_read", "connection_reset", "timeout"])
+def test_transport_failure_after_headers_preserves_status(configured, monkeypatch, failure):
+    client, server, _, _ = configured
+    private = "private prompt synthetic-test-secret https://private.invalid"
+    error = {
+        "incomplete_read": http.client.IncompleteRead(private.encode(), 1024),
+        "connection_reset": ConnectionResetError(private),
+        "timeout": TimeoutError(private),
+    }[failure]
+
+    class PartialResponse:
+        code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, size):
+            raise error
+
+    calls = []
+
+    def open_response(*args, **kwargs):
+        calls.append(1)
+        return PartialResponse()
+
+    monkeypatch.setattr(client._opener, "open", open_response)
+    with pytest.raises(RemoteEncoderError) as caught:
+        client.query(["private prompt"])
+    assert caught.value.http_status == 200
+    assert caught.value.status_code == 503
+    assert "private" not in str(caught.value)
+    assert "synthetic-test-secret" not in str(caught.value)
+    assert client.last_error == str(caught.value)
+    assert not client.loaded and client.last_success_at is None
+    assert len(calls) == 1 and server["requests"] == []
+
+
+@pytest.mark.parametrize("after_busy", [False, True])
+def test_transport_failure_before_response_has_no_status(configured, monkeypatch, after_busy):
+    client, server, _, _ = configured
+    calls, waits = [], []
+
+    class BusyResponse:
+        code = 429
+        headers = {"Retry-After": "0.1"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def open_response(*args, **kwargs):
+        calls.append(1)
+        if after_busy and len(calls) == 1:
+            return BusyResponse()
+        raise urllib.error.URLError("private prompt synthetic-test-secret https://private.invalid")
+
+    monkeypatch.setattr(client._opener, "open", open_response)
+    monkeypatch.setattr("omniembed.remote_encoder.time.sleep", waits.append)
+    with pytest.raises(RemoteEncoderError) as caught:
+        client.query(["private prompt"])
+    # A previous retry's 429 is not the status of this failed connection.
+    assert caught.value.http_status is None
+    assert "private" not in str(caught.value)
+    assert "synthetic-test-secret" not in str(caught.value)
+    assert client.last_error == str(caught.value)
+    assert not client.loaded and client.last_success_at is None
+    assert len(calls) == (2 if after_busy else 1)
+    assert waits == ([0.1] if after_busy else [])
+    assert server["requests"] == []
 
 
 def test_busy_retry_is_bounded_and_recovers(configured, monkeypatch):
@@ -159,6 +238,7 @@ def test_busy_retry_is_bounded_and_recovers(configured, monkeypatch):
     with pytest.raises(RemoteEncoderError) as caught:
         client.query(["query"])
     assert caught.value.status_code == 429
+    assert caught.value.http_status == 429
     assert len(server["requests"]) == 3 and waits == [0.1, 0.1]
     server["handler"] = None
     client.query(["query"])

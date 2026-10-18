@@ -58,6 +58,22 @@ bash scripts/local_demo.sh stop
 
 端点和 Key 文件格式、导入与检索流程见[本地 Demo 使用说明](docs/LOCAL_DEMO.html)和 [AutoDL 运维指南](docs/AUTODL_OPERATIONS.html)。停止本地 Demo 不会关闭远程 GPU 实例。
 
+### AiCode 代码与文档混合检索
+
+独立的 OmniIndex 服务扫描本机目录，将 UTF-8 源码和文本快照保存到 SQLite，提供 BM25、AutoDL 向量和加权 RRF 混合召回，以及原行号、分块、向量与排名贡献的白盒查看。使用 Python 3.11 / 3.12：
+
+```bash
+pip install -r requirements-code-search.txt
+python scripts/run_code_search.py --root ~/AiCode --sync  # http://127.0.0.1:8790/
+# 仅建立本地快照与 BM25，不依赖 GPU：改用 --scan-only
+```
+
+先准备 `data/autodl/endpoint.json` 与权限为 `0600` 的私有 `inference.key`。任务支持暂停与断点续跑；PDF、Office、图片、依赖、构建产物和敏感文件不在当前正文解析范围内。完整设计、连接配置、API、排除规则与规模边界见 [OmniIndex 使用说明](docs/CODE_SEARCH.md)。
+
+质量评测会固定语料、题集与算法，分别记录来源证据、编码覆盖、分词、候选、排序和Recall/MRR。网页“质量评测”页可查看各轮日志；自动研究只用开发集选参，随后用留出集检查门槛，未通过则保留现有参数。入口与实验范围见 [检索研究说明](docs/CODE_SEARCH_RESEARCH.md)。
+
+最新版完整方案、端到端流程、召回机制、优化实测、运维与审计示例见 [OmniIndex 完整方案与实践指南](docs/OMNIINDEX_SOLUTION.md)。
+
 ### Colab 推理服务
 
 需要把推理放到 Colab GPU 时，设置 `OMNI_ENCODER_BACKEND=remote`，现有入库、检索、

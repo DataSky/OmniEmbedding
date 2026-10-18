@@ -1,0 +1,7 @@
+# Independent code/document search, remote AutoDL encoding only.
+fastapi==0.135.2
+uvicorn==0.24.0
+pydantic==2.12.5
+numpy==1.26.4
+pillow==11.0.0
+python-multipart==0.0.22

@@ -32,6 +32,19 @@ class InferenceBusy(InferenceError):
         super().__init__("InferenceBusy")
 
 
+class InferenceInputError(InferenceError):
+    """Confirmed processor input rejection, carrying no original input/message."""
+
+    REASONS = frozenset({"processor_image_without_media", "processor_audio_without_media",
+                         "processor_video_without_media"})
+
+    def __init__(self, reason_code):
+        if reason_code not in self.REASONS:
+            raise ValueError("unknown inference input reason")
+        super().__init__("InferenceInputError", reason_code)
+        self.reason_code = reason_code
+
+
 def category_of(ex: BaseException) -> str:
     if isinstance(ex, InferenceError):
         return ex.category
@@ -74,7 +87,7 @@ class Health:
         try:
             yield
         except BaseException as ex:
-            if not isinstance(ex, InferenceBusy):
+            if not isinstance(ex, (InferenceBusy, InferenceInputError)):
                 self.record_failure(category_of(ex))
             raise
         else:

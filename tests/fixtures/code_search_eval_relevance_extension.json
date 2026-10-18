@@ -1,0 +1,218 @@
+{
+  "version": 1,
+  "base_fixture": "code_search_eval.json",
+  "base_fixture_sha256": "e25dc138176a4198b76ddb40d32a2b0f8cb0ca7838c41517a716c19a39e87575",
+  "purpose": "独立开发集标签有效性复核；保留原17题标签及其已跑分数，只增加相关性解释，禁止用该扩展重调参数后替换原基准。",
+  "runnable_by_current_evaluator": false,
+  "scope": "仅development的6个宽泛问题；未补充或使用holdout逐题调参。",
+  "grading": {
+    "3": "直接、完整且版本适合的问题回答或实际执行证据",
+    "2": "有用的简明/部分直接答案",
+    "1": "正式导航或相关背景，不能当完整答案",
+    "0": "无回答内容或对当前问题已失效的历史断言"
+  },
+  "metric_warning": "当前score_results忽略relevance并等权要求找齐全部gold；直接把这些替代答案追加gold会改变分母且误罚任选其一的有效答案。建议保留原specified-evidence Recall/MRR，另以相关性>=2评Success@k，并按独立证据/内容去重后计算graded nDCG；扩展只作辅助诊断，不作本轮参数选择。",
+  "development_annotations": [
+    {
+      "case_id": "ov_architecture",
+      "query": "OmniVoice 架构",
+      "original_specified_evidence": [
+        {
+          "path": "OmniVoice/docs/current/01-当前架构与实施边界.md",
+          "start_line": 21,
+          "end_line": 27,
+          "source_sha256": "9e0987551a120f286853111184e2d0f117a0b20ae3ae757731bbe10797facefe",
+          "evidence_sha256": "ca8e51e3bb0b5e617748b9f2540596800b881aaedff609ff1b839f247b79464e",
+          "evidence_summary": "当前架构的组件职责与事实来源",
+          "relevance": 2
+        }
+      ],
+      "additional_judgments": [
+        {
+          "path": "OmniVoice/README.md",
+          "start_line": 1,
+          "end_line": 7,
+          "relevance": 2,
+          "source_sha256": "5943d223df71805b54fabc470bd7b5096e86bb379a28b8d20c6fa4fb64c998fc",
+          "evidence_sha256": "f924abaf4a22fc323b8cb9735444f1565fde5f00c7b2472f70e987a3cfa91343",
+          "rationale": "README直接概括Voice、Pi与确定性服务的组件分工，并明确指向当前架构文档；是合法简明回答。"
+        },
+        {
+          "path": "OmniVoice/README.md",
+          "start_line": 13,
+          "end_line": 24,
+          "relevance": 1,
+          "source_sha256": "5943d223df71805b54fabc470bd7b5096e86bb379a28b8d20c6fa4fb64c998fc",
+          "evidence_sha256": "9cc7a14707c4dd2ce406881679d5830ebeff1272f25a3bcd55171d0316ba2c14",
+          "rationale": "官方导航入口，包含当前架构和云端架构链接；仅导航不等于完整回答。"
+        },
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 31,
+          "end_line": 58,
+          "relevance": 2,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "1d77d7592f607af6a22745c6bb704221f67d1ea2855dc2bdb533cd33a3184ef9",
+          "rationale": "提供系统云端拓扑，是整体架构问题的有效部分答案。"
+        }
+      ]
+    },
+    {
+      "case_id": "ov_cloud_topology",
+      "query": "OmniVoice Railway Supabase E2B 云端架构",
+      "original_specified_evidence": [
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 31,
+          "end_line": 58,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "1d77d7592f607af6a22745c6bb704221f67d1ea2855dc2bdb533cd33a3184ef9",
+          "evidence_summary": "云端拓扑及服务边界",
+          "relevance": 2
+        }
+      ],
+      "additional_judgments": [
+        {
+          "path": "OmniVoice/docs/current/01-当前架构与实施边界.md",
+          "start_line": 21,
+          "end_line": 27,
+          "relevance": 2,
+          "source_sha256": "9e0987551a120f286853111184e2d0f117a0b20ae3ae757731bbe10797facefe",
+          "evidence_sha256": "ca8e51e3bb0b5e617748b9f2540596800b881aaedff609ff1b839f247b79464e",
+          "rationale": "当前事实来源给出Railway管理网关/Worker、Supabase身份/事务与E2B隔离的职责摘要。"
+        },
+        {
+          "path": "OmniVoice/README.md",
+          "start_line": 18,
+          "end_line": 24,
+          "relevance": 1,
+          "source_sha256": "5943d223df71805b54fabc470bd7b5096e86bb379a28b8d20c6fa4fb64c998fc",
+          "evidence_sha256": "c2b34fd588dcf29b766d80d822f465548d59f9742d844c2ec3c81e98d63d1a79",
+          "rationale": "正式云端架构阅读入口及运行包入口，属于导航相关。"
+        }
+      ]
+    },
+    {
+      "case_id": "ov_checkpoint",
+      "query": "OmniVoice 检查点和故障恢复",
+      "original_specified_evidence": [
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 122,
+          "end_line": 140,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "51b3c8c7a072d45650c848955027c433a6c93f3906a7ae15d7e936b207d9b59d",
+          "evidence_summary": "检查点与恢复过程",
+          "relevance": 2
+        }
+      ],
+      "additional_judgments": [
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 230,
+          "end_line": 242,
+          "relevance": 3,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "5fccad5728054725172fe0fea19987492131c7c38de4177a4d106bff07c2c920",
+          "rationale": "补充实际实现后的检查点提交、销毁前回读和当前恢复边界。"
+        },
+        {
+          "path": "OmniVoice/docs/delivery/2026-09-25-C1真实云端执行与销毁恢复.md",
+          "start_line": 5,
+          "end_line": 17,
+          "relevance": 3,
+          "source_sha256": "721c7c20ba5c3d8c02723326e7771e018792e6db5e97bd4124d72af879b125bc",
+          "evidence_sha256": "3486de67cf814a84f41a2abab57e91781be33b3223ede9d0daf5ca53598f0b72",
+          "rationale": "实际外部持久化、旧环境销毁、服务重启、新环境续做证据。"
+        },
+        {
+          "path": "OmniVoice/docs/delivery/2026-09-25-C1真实云端执行与销毁恢复.md",
+          "start_line": 42,
+          "end_line": 48,
+          "relevance": 2,
+          "source_sha256": "721c7c20ba5c3d8c02723326e7771e018792e6db5e97bd4124d72af879b125bc",
+          "evidence_sha256": "cf9427194f268b079f9273260d732b3b1451cfe7bffe4481caca39e6c30a916e",
+          "rationale": "运行恢复与回收保护条件，支持故障恢复问题。"
+        }
+      ]
+    },
+    {
+      "case_id": "ov_data_authority",
+      "query": "OmniVoice 会话和工作文件分别存在哪里",
+      "original_specified_evidence": [
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 102,
+          "end_line": 114,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "119750330ed98e17b1320a68b000668a5315f14cf7be7e60dfd42786ccea2e2b",
+          "evidence_summary": "数据库、会话和文件的权威存储划分",
+          "relevance": 2
+        }
+      ],
+      "additional_judgments": [
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 236,
+          "end_line": 242,
+          "relevance": 3,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "e7814effec2e362be1880fb15b2996c68262a60b2fe919e13ca67788a26ec32b",
+          "rationale": "实现增量表明确已保存会话/文件、未提交内容、依赖及备份的当前权威位置。"
+        }
+      ]
+    },
+    {
+      "case_id": "ov_memory_confirmation",
+      "query": "OmniVoice 长期记忆修改需要确认吗",
+      "original_specified_evidence": [
+        {
+          "path": "OmniVoice/clients/ios/README.md",
+          "start_line": 174,
+          "end_line": 179,
+          "source_sha256": "e48ced56fbd0a915eb87d6cd05e9c54d4ca7f08b4b0ca0f3a1fc285ac5fe14ef",
+          "evidence_sha256": "56ea00d32416933043bc517b6c3e1d3148fe20db33a14a601bbdd326260be758",
+          "evidence_summary": "长期记忆变更确认与能力入口",
+          "relevance": 2
+        }
+      ],
+      "additional_judgments": [
+        {
+          "path": "OmniVoice/README.md",
+          "start_line": 63,
+          "end_line": 67,
+          "relevance": 3,
+          "source_sha256": "5943d223df71805b54fabc470bd7b5096e86bb379a28b8d20c6fa4fb64c998fc",
+          "evidence_sha256": "4f61f308de7ed94c6094ece9062929a29a24f8e534777f3a8a55a452954bcd17",
+          "rationale": "当前能力边界直接写明长期记忆需客户端确认；能完整回答是否确认。"
+        }
+      ]
+    },
+    {
+      "case_id": "cw_architecture",
+      "query": "CodeWhale 运行时架构和模块组织",
+      "original_specified_evidence": [
+        {
+          "path": "CodeWhaleDemo/CodeWhale/docs/ARCHITECTURE.md",
+          "start_line": 1,
+          "end_line": 35,
+          "source_sha256": "49064e71b86ebd14887f1cd881b97876088cf17047ab1e4b065f6f87a552d72c",
+          "evidence_sha256": "8b250520859679efd6ce85951a76017694ba80f11ac7fdd2624dd5e7fa937435",
+          "evidence_summary": "当前TUI运行时与工作区模块边界",
+          "relevance": 2
+        }
+      ],
+      "additional_judgments": [
+        {
+          "path": "CodeWhaleDemo/CodeWhale/README.md",
+          "start_line": 106,
+          "end_line": 110,
+          "relevance": 2,
+          "source_sha256": "8ebc09e773bb24f87f214851f6572a2365b4f12e2b9153547b005274396e802f",
+          "evidence_sha256": "0d70c51f5894eb48e05ac81a6db405961c69c8582b940e945f0850fea7a2cda6",
+          "rationale": "README给出dispatcher/TUI/异步引擎/流式客户端与工具注册链路，属于有效简明架构答案。"
+        }
+      ]
+    }
+  ]
+}

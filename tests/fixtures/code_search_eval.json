@@ -1,0 +1,277 @@
+{
+  "version": 1,
+  "created_on": "2026-10-18",
+  "scope": "以OmniVoice架构及相邻文档为主的专项集，补充CodeWhaleDemo、OmniSQL、OmniSearchNew三个项目、精确符号和无答案问题；不代表全AiCode通用质量。",
+  "methodology": {
+    "gold": "每题给出可人工核验的源文件、行段、整文件SHA与行段SHA；不保存源码正文。",
+    "passage_hit": "路径完全一致且命中行段至少重叠min(3,gold_span_lines)行。",
+    "split": "development用于小范围调试；holdout不用于逐题调参。",
+    "coverage": "未索引/未向量化的gold保留为可见覆盖缺口，不从分母删除。"
+  },
+  "queries": [
+    {
+      "id": "ov_architecture",
+      "query": "OmniVoice 架构",
+      "split": "development",
+      "gold": [
+        {
+          "path": "OmniVoice/docs/current/01-当前架构与实施边界.md",
+          "start_line": 21,
+          "end_line": 27,
+          "source_sha256": "9e0987551a120f286853111184e2d0f117a0b20ae3ae757731bbe10797facefe",
+          "evidence_sha256": "ca8e51e3bb0b5e617748b9f2540596800b881aaedff609ff1b839f247b79464e",
+          "evidence_summary": "当前架构的组件职责与事实来源",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_current_capabilities",
+      "query": "OmniVoice 当前架构和已实现能力",
+      "split": "holdout",
+      "gold": [
+        {
+          "path": "OmniVoice/docs/current/01-当前架构与实施边界.md",
+          "start_line": 29,
+          "end_line": 49,
+          "source_sha256": "9e0987551a120f286853111184e2d0f117a0b20ae3ae757731bbe10797facefe",
+          "evidence_sha256": "b53537cb5a80c6d0745dd5d2e47c557e12a22ef65876ba18d2674b9cd514d317",
+          "evidence_summary": "能力矩阵明确区分已有证据与限制",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_cloud_topology",
+      "query": "OmniVoice Railway Supabase E2B 云端架构",
+      "split": "development",
+      "gold": [
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 31,
+          "end_line": 58,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "1d77d7592f607af6a22745c6bb704221f67d1ea2855dc2bdb533cd33a3184ef9",
+          "evidence_summary": "云端拓扑及服务边界",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_pi_location",
+      "query": "Pi 工作进程应该放在 E2B 还是 Railway",
+      "split": "holdout",
+      "gold": [
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 62,
+          "end_line": 76,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "22578b7f92a7813f0372dfa01a25dc93c454f6a2958a803389a2a51d7bdc1aff",
+          "evidence_summary": "隔离环境与运行管理的推荐分工",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_checkpoint",
+      "query": "OmniVoice 检查点和故障恢复",
+      "split": "development",
+      "gold": [
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 122,
+          "end_line": 140,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "51b3c8c7a072d45650c848955027c433a6c93f3906a7ae15d7e936b207d9b59d",
+          "evidence_summary": "检查点与恢复过程",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_tenant_isolation",
+      "query": "OmniVoice 多用户沙箱隔离与权限",
+      "split": "holdout",
+      "gold": [
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 144,
+          "end_line": 163,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "ae61b207ca050099fcf22eab95758775a08f0990c0303652e0d4c1daadb7adf8",
+          "evidence_summary": "用户隔离覆盖控制器、访问及出网",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_data_authority",
+      "query": "OmniVoice 会话和工作文件分别存在哪里",
+      "split": "development",
+      "gold": [
+        {
+          "path": "OmniVoice/docs/current/103-Railway-Supabase与E2B云端工作架构.md",
+          "start_line": 102,
+          "end_line": 114,
+          "source_sha256": "be8266c0bdf7df3c40f5d0248f0e88d346277e8994d03ebc49cc4fbceeb1a909",
+          "evidence_sha256": "119750330ed98e17b1320a68b000668a5315f14cf7be7e60dfd42786ccea2e2b",
+          "evidence_summary": "数据库、会话和文件的权威存储划分",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_background_lock",
+      "query": "小欧 iPhone 锁屏后如何继续语音和处理打断",
+      "split": "holdout",
+      "gold": [
+        {
+          "path": "OmniVoice/clients/ios/README.md",
+          "start_line": 136,
+          "end_line": 144,
+          "source_sha256": "e48ced56fbd0a915eb87d6cd05e9c54d4ca7f08b4b0ca0f3a1fc285ac5fe14ef",
+          "evidence_sha256": "bdcf72cba0b3f2384810e2ccb19becadca02752eff34c1e66e78d85d39ac5ff6",
+          "evidence_summary": "原生客户端锁屏与打断行为",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_ios_free_test",
+      "query": "OmniVoice iOS 模拟器零费用自动验证",
+      "split": "development",
+      "gold": [
+        {
+          "path": "OmniVoice/clients/ios/README.md",
+          "start_line": 119,
+          "end_line": 129,
+          "source_sha256": "e48ced56fbd0a915eb87d6cd05e9c54d4ca7f08b4b0ca0f3a1fc285ac5fe14ef",
+          "evidence_sha256": "cce3de019006e5d9ff85e5a0a361c90231156a48dc34fc1a3b287d99e65e2afb",
+          "evidence_summary": "本地模拟器自动验证的范围和替代项",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_memory_confirmation",
+      "query": "OmniVoice 长期记忆修改需要确认吗",
+      "split": "development",
+      "gold": [
+        {
+          "path": "OmniVoice/clients/ios/README.md",
+          "start_line": 174,
+          "end_line": 179,
+          "source_sha256": "e48ced56fbd0a915eb87d6cd05e9c54d4ca7f08b4b0ca0f3a1fc285ac5fe14ef",
+          "evidence_sha256": "56ea00d32416933043bc517b6c3e1d3148fe20db33a14a601bbdd326260be758",
+          "evidence_summary": "长期记忆变更确认与能力入口",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_historical_asr",
+      "query": "OmniVoice 2026年9月初 ASR 网关与三类模型架构",
+      "split": "development",
+      "gold": [
+        {
+          "path": "OmniVoice/docs/handoff/01-技术架构与边界.md",
+          "start_line": 11,
+          "end_line": 42,
+          "source_sha256": "095df5fa84a6b7f863e85f3c139a1b9fe25902ce5674ddbf0385f631a9b27496",
+          "evidence_sha256": "9eed1efa244636c859e15524f55b6fe3be0300774f77bbd8292202d06475c06e",
+          "evidence_summary": "早期ASR链路与模型分工；明确历史问题",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_historical_limits",
+      "query": "OmniVoice 旧 ASR 网关并发和音频时长限制",
+      "split": "development",
+      "gold": [
+        {
+          "path": "OmniVoice/docs/handoff/01-技术架构与边界.md",
+          "start_line": 54,
+          "end_line": 56,
+          "source_sha256": "095df5fa84a6b7f863e85f3c139a1b9fe25902ce5674ddbf0385f631a9b27496",
+          "evidence_sha256": "4751aad661a3145bca373a1d64b1dbae6d6255d649116462d5050f9211e17c53",
+          "evidence_summary": "历史ASR并发和时长上限",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "cw_architecture",
+      "query": "CodeWhale 运行时架构和模块组织",
+      "split": "development",
+      "gold": [
+        {
+          "path": "CodeWhaleDemo/CodeWhale/docs/ARCHITECTURE.md",
+          "start_line": 1,
+          "end_line": 35,
+          "source_sha256": "49064e71b86ebd14887f1cd881b97876088cf17047ab1e4b065f6f87a552d72c",
+          "evidence_sha256": "8b250520859679efd6ce85951a76017694ba80f11ac7fdd2624dd5e7fa937435",
+          "evidence_summary": "当前TUI运行时与工作区模块边界",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "osql_architecture",
+      "query": "OmniSQL Monorepo 整体架构",
+      "split": "holdout",
+      "gold": [
+        {
+          "path": "OmniSQL/learn_notebook/02-architecture-analysis/01-overall-architecture.md",
+          "start_line": 6,
+          "end_line": 62,
+          "source_sha256": "bfd4995220c8193bd1531c6be032eb8ab305753c4e789b09f6ec50dc7fc59dfd",
+          "evidence_sha256": "2de187a93f043fa5f7232354aa440585296f192d0311998e9fe653632160e7d3",
+          "evidence_summary": "Monorepo结构和整体架构",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "osearch_bm25",
+      "query": "OmniSearchNew BM25 评分算法架构",
+      "split": "development",
+      "gold": [
+        {
+          "path": "OmniSearchNew/docs/core-algorithm-architecture.md",
+          "start_line": 73,
+          "end_line": 121,
+          "source_sha256": "e34fc34e4f7e742e57e48e05c70f9477efebf2d72122200d599767bf643d505e",
+          "evidence_sha256": "453e385b1f9dc869e910265022491e2875f7f386074e046b2bdc6cd6fa778580",
+          "evidence_summary": "BM25评分器与计算流程",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "ov_exact_symbol",
+      "query": "AudioRouteMonitor",
+      "split": "holdout",
+      "gold": [
+        {
+          "path": "OmniVoice/clients/ios/OmniVoice/Audio/VoiceAudioEngine.swift",
+          "start_line": 400,
+          "end_line": 430,
+          "source_sha256": "bb351a2eeb35a786337056e99d924b413f6f58889fd81ea9b5cbefb9cfee3fa3",
+          "evidence_sha256": "5a4045c5993908e59d33d3ddf99dae657932908aec7574391254bba8c57fd942",
+          "evidence_summary": "精确Swift类型定义与职责",
+          "relevance": 2
+        }
+      ]
+    },
+    {
+      "id": "missing_exact_symbol",
+      "query": "OmniVoice ZZZ_missing_symbol_20261018_c7a0f9",
+      "split": "holdout",
+      "kind": "unanswerable",
+      "gold": [],
+      "evidence_summary": "人工构造的不存在标识符；检查无答案时是否返回误导性最近邻。"
+    }
+  ]
+}

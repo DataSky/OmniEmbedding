@@ -10,6 +10,9 @@ from __future__ import annotations
 import asyncio
 import hmac
 import io
+import hashlib
+import json
+import logging
 import os
 import threading
 import time
@@ -25,6 +28,31 @@ from fastapi.responses import JSONResponse
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, StrictStr, ValidationError, model_validator
 from starlette.concurrency import run_in_threadpool
+
+from .health import InferenceError, InferenceInputError
+
+LOGGER = logging.getLogger("omniembed.inference")
+SAFE_FAILURE_CATEGORIES = frozenset({"InferenceError", "InferenceOOM", "InferenceInputError"})
+SAFE_EXCEPTION_TYPES = frozenset({"InferenceError", "InferenceInputError", "RuntimeError", "ValueError",
+                                 "TypeError", "OutOfMemoryError", "InvalidEmbeddingOutput"})
+
+
+class InvalidEmbeddingOutput(ValueError):
+    """Invalid model output remains a model-health failure, never an input error."""
+
+
+def _safe_failure(exc):
+    name = type(exc).__name__
+    category = exc.category if isinstance(exc, InferenceError) else name
+    if category not in SAFE_FAILURE_CATEGORIES and category not in SAFE_EXCEPTION_TYPES:
+        category = "InferenceError"
+    cause = type(exc.__cause__).__name__ if exc.__cause__ is not None else None
+    return {"category": category,
+            "exception_type": name if name in SAFE_EXCEPTION_TYPES else "OtherError",
+            "cause_type": cause if cause in SAFE_EXCEPTION_TYPES else ("OtherError" if cause else None),
+            "reason_code": exc.reason_code if isinstance(exc, InferenceInputError) else None,
+            "failure_stage": "processor_validation" if isinstance(exc, InferenceInputError) else
+                             ("vector_validation" if isinstance(exc, InvalidEmbeddingOutput) else "model_operation")}
 
 BASE_DIMENSIONS = 768
 MAX_BATCH_SIZE = 16
@@ -95,16 +123,16 @@ def _validated_vectors(raw, rows: int, dimensions: int = BASE_DIMENSIONS):
     """Reject poisoned or incorrectly shaped model output before serialization."""
     vectors = np.asarray(raw, dtype=np.float32)
     if vectors.shape != (rows, BASE_DIMENSIONS):
-        raise ValueError("unexpected embedding shape")
+        raise InvalidEmbeddingOutput("unexpected embedding shape")
     if not np.isfinite(vectors).all():
-        raise ValueError("non-finite embeddings")
+        raise InvalidEmbeddingOutput("non-finite embeddings")
     norms = np.linalg.norm(vectors, axis=1)
     if not np.isfinite(norms).all() or not np.allclose(norms, 1.0, atol=0.05):
-        raise ValueError("embeddings are not finite, nonzero unit vectors")
+        raise InvalidEmbeddingOutput("embeddings are not finite, nonzero unit vectors")
     vectors = vectors[:, :dimensions]
     truncated_norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     if not np.isfinite(truncated_norms).all() or (truncated_norms <= 1e-12).any():
-        raise ValueError("zero or non-finite truncated embeddings")
+        raise InvalidEmbeddingOutput("zero or non-finite truncated embeddings")
     return vectors / truncated_norms
 
 
@@ -137,6 +165,7 @@ class InferenceState:
                 "boot_id": self.boot_id,
                 "model": self.encoder.model_id,
                 "model_revision": getattr(self.encoder, "revision", None),
+                "text_input_policy": getattr(self.encoder, "text_input_policy", None),
                 "device": str(getattr(self.encoder, "device", "unknown")),
                 "dtype": str(getattr(self.encoder, "dtype", "unknown")),
                 "uptime_s": round(time.monotonic() - self.started, 3),
@@ -149,7 +178,8 @@ class InferenceState:
                 "startup_timeout_s": self.startup_timeout_s,
             }
 
-    def _execute(self, operation: Callable, *, probe=False, startup=False):
+    def _execute(self, operation: Callable, *, probe=False, startup=False,
+                 operation_name="inference", input_sha256=None):
         # The worker owns the lock, including when an HTTP client disconnects.
         # Requests never queue behind model inference and probes report BUSY.
         if not self.lock.acquire(blocking=False):
@@ -168,10 +198,19 @@ class InferenceState:
             except HTTPException:
                 raise
             except Exception as exc:
+                diagnostic = _safe_failure(exc)
+                LOGGER.error(json.dumps({"event": "inference_failure", "boot_id": self.boot_id,
+                                         "operation": operation_name, "input_sha256": input_sha256,
+                                         **diagnostic}, sort_keys=True))
+                if isinstance(exc, InferenceInputError) and not probe:
+                    # A rejected input says nothing about model readiness. A probe
+                    # rejection, however, means the service self-test failed.
+                    raise HTTPException(422, {"code": "InferenceInputError",
+                                              "reason": exc.reason_code}) from None
                 with self.state_lock:
                     self.ready = False
                     self.warming = False
-                    self.last_error = type(exc).__name__
+                    self.last_error = diagnostic["category"]
                 if startup:
                     return None
                 raise HTTPException(503, "model inference failed; run a deep health probe") from None
@@ -192,7 +231,7 @@ class InferenceState:
             return {"shape": list(vectors.shape), "finite": True,
                     "nonzero": True, "unit_norm": True}
 
-        checks = self._execute(run, probe=True, startup=startup)
+        checks = self._execute(run, probe=True, startup=startup, operation_name="health_probe")
         return {**self.snapshot(), "checks": checks}
 
     def text_embeddings(self, request: EmbeddingsRequest):
@@ -206,7 +245,12 @@ class InferenceState:
                 raw = self.encoder.query(texts, bs=4)
             return _validated_vectors(raw, len(texts), request.dimensions)
 
-        vectors = self._execute(run)
+        # Bind diagnostics to the original request without storing its contents.
+        fingerprint = hashlib.sha256(json.dumps(
+            {"type": request.input_type, "texts": texts, "titles": request.titles},
+            ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        vectors = self._execute(run, operation_name="text_" + request.input_type,
+                                input_sha256=fingerprint)
         return self.response(vectors, request.dimensions)
 
     def image_embeddings(self, content: bytes, dimensions: int):
@@ -214,7 +258,7 @@ class InferenceState:
         rgb = _decode_image(content)
         try:
             vectors = self._execute(lambda: _validated_vectors(
-                self.encoder.images([rgb], bs=1), 1, dimensions))
+                self.encoder.images([rgb], bs=1), 1, dimensions), operation_name="image")
             return self.response(vectors, dimensions)
         finally:
             rgb.close()
@@ -237,7 +281,7 @@ class InferenceState:
                 image.close()
         frames = np.stack(arrays)
         vectors = self._execute(lambda: _validated_vectors(
-            self.encoder.videos([frames], bs=1), 1, dimensions))
+            self.encoder.videos([frames], bs=1), 1, dimensions), operation_name="video")
         return self.response(vectors, dimensions)
 
     def response(self, vectors, dimensions):
@@ -247,6 +291,7 @@ class InferenceState:
                      for index, vector in enumerate(vectors)],
             "model": self.encoder.model_id,
             "model_revision": getattr(self.encoder, "revision", None),
+            "text_input_policy": getattr(self.encoder, "text_input_policy", None),
             "dimensions": dimensions,
             "boot_id": self.boot_id,
         }

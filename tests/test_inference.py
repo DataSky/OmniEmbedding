@@ -11,6 +11,8 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from omniembed.health import InferenceInputError
+
 from omniembed.inference import (
     MAX_BATCH_SIZE, MAX_IMAGE_BYTES, MAX_JSON_BYTES, MAX_TEXT_CHARS,
     MAX_TITLE_CHARS, MAX_TOTAL_TEXT_CHARS, MAX_VIDEO_BYTES,
@@ -492,3 +494,88 @@ def test_encoder_refuses_unsafe_float16():
 
     with pytest.raises(ValueError, match="float16 is unsafe"):
         Encoder(model_id="fake", dtype="float16")
+
+
+@pytest.mark.parametrize("reason", sorted(InferenceInputError.REASONS))
+def test_confirmed_input_errors_preserve_readiness_and_safe_diagnostics(serving, monkeypatch, caplog, reason):
+    from omniembed.health import InferenceInputError
+    client, encoder, app = serving
+    before = app.state.inference.snapshot()
+    original = encoder.query
+
+    def reject(texts, bs=64):
+        raise InferenceInputError(reason)
+
+    monkeypatch.setattr(encoder, "query", reject)
+    with caplog.at_level("ERROR", logger="omniembed.inference"):
+        response = client.post("/v1/embeddings", headers=AUTH,
+                               json={"input": "private source body must not appear in logs"})
+    assert response.status_code == 422
+    assert response.json()["detail"] == {"code": "InferenceInputError", "reason": reason}
+    after = app.state.inference.snapshot()
+    assert after["ready"] and after["last_error"] == before["last_error"]
+    assert after["last_success"] == before["last_success"]
+    assert after["busy_for_s"] == 0
+    records = [r for r in caplog.records if r.name == "omniembed.inference"]
+    import json
+    diagnostic = json.loads(records[-1].message)
+    assert diagnostic["category"] == "InferenceInputError"
+    assert diagnostic["failure_stage"] == "processor_validation"
+    assert diagnostic["operation"] == "text_query"
+    assert len(diagnostic["input_sha256"]) == 64
+    assert "private source body" not in caplog.text + response.text
+    monkeypatch.setattr(encoder, "query", original)
+    assert client.post("/v1/embeddings", headers=AUTH, json={"input": "ordinary"}).status_code == 200
+
+
+def test_input_error_self_test_still_degrades_model(serving, monkeypatch):
+    from omniembed.health import InferenceInputError
+    client, encoder, app = serving
+
+    def reject(texts, bs=64):
+        raise InferenceInputError("processor_image_without_media")
+
+    monkeypatch.setattr(encoder, "query", reject)
+    assert client.post("/health/inference", headers=AUTH).status_code == 503
+    assert not app.state.inference.snapshot()["ready"]
+
+
+@pytest.mark.parametrize("category", ["InferenceOOM", "InferenceError", "private-secret-category"])
+def test_model_failures_keep_protection_and_redact_diagnostics(serving, monkeypatch, caplog, category):
+    from omniembed.health import InferenceError
+    client, encoder, app = serving
+
+    def reject(texts, bs=64):
+        try:
+            raise ValueError("private source content")
+        except ValueError as exc:
+            raise InferenceError(category, "secret endpoint and credential") from exc
+
+    monkeypatch.setattr(encoder, "query", reject)
+    with caplog.at_level("ERROR", logger="omniembed.inference"):
+        response = client.post("/v1/embeddings", headers=AUTH, json={"input": "private query"})
+    assert response.status_code == 503
+    snapshot = app.state.inference.snapshot()
+    assert not snapshot["ready"]
+    assert snapshot["last_error"] == (category if category != "private-secret-category" else "InferenceError")
+    assert '"cause_type": "ValueError"' in caplog.text
+    for private in ("private source content", "secret endpoint", "private query", "private-secret-category"):
+        assert private not in caplog.text + response.text
+
+
+def test_confirmed_input_rejection_does_not_poison_shared_health():
+    from omniembed.health import Health, InferenceInputError
+    health = Health(120)
+    health.mark_warm()
+    with health.inference():
+        pass
+    before = health.snapshot()
+    with pytest.raises(InferenceInputError):
+        with health.inference():
+            raise InferenceInputError("processor_video_without_media")
+    after = health.snapshot()
+    assert after == before
+    with pytest.raises(RuntimeError):
+        with health.inference():
+            raise RuntimeError("real failure")
+    assert health.snapshot()["status"] == "degraded"

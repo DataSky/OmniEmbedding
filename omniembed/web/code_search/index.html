@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fafafa">
+  <meta name="description" content="本地代码与文档的混合检索工作台。查看原文、追溯召回、观察索引进度。">
+  <title>OmniIndex · 搜索自己的代码与文档</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23171717'/%3E%3Cpath d='m20 9 12 22H8Z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/code-static/app.css">
+  <script src="/code-static/app.js" defer></script>
+</head>
+<body>
+  <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.7" cy="10.7" r="6.7"/><path d="m16 16 4.5 4.5"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 8a8 8 0 0 0-14-3L3 8m0-5v5h5M4 16a8 8 0 0 0 14 3l3-3m0 5v-5h-5"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 10 6-10 6L2 9Zm-10 12 10 6 10-6M2 12l10 6 10-6"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-14-2 18"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h8m4 0h4M4 17h3m4 0h9"/><circle cx="14" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 3h7v7m0-7L10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 2.3 6.7L21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3Z"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 3 9 5v8l-9 5-9-5V8Zm0 9 9-4M3 8l9 4v9M7.5 5.5l9 5"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  </defs></svg>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <button id="sidebar-backdrop" class="sidebar-backdrop" aria-label="收起导航" hidden></button>
+  <aside class="sidebar" id="sidebar" aria-label="主要导航">
+    <a class="brand" href="/" aria-label="OmniIndex 首页"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 28 28"><path d="M14 4 26 25H2Z" fill="currentColor"/></svg></span><span>OmniIndex<span class="brand-caption">代码与文档 · 本地资料库</span></span></a>
+    <div class="workspace-label"><span class="workspace-icon">O</span><span>个人工作空间</span><span class="workspace-dot" title="本地存储"></span></div>
+    <nav class="navigation" aria-label="工作台">
+      <button class="nav-item active" data-view="search" aria-current="page"><svg><use href="#i-search"/></svg><span>探索检索</span><kbd>/</kbd></button>
+      <button class="nav-item" data-view="library"><svg><use href="#i-grid"/></svg><span>资料库</span><span id="nav-file-count" class="nav-count">—</span></button>
+      <button class="nav-item" data-view="jobs"><svg><use href="#i-activity"/></svg><span>索引任务</span><span id="nav-job-indicator" class="activity-dot" hidden></span></button>
+      <button class="nav-item" data-view="exclusions"><svg><use href="#i-info"/></svg><span>跳过清单</span></button>
+      <button class="nav-item" data-view="evaluations"><svg><use href="#i-check"/></svg><span>质量评测</span></button>
+    </nav>
+    <div class="sidebar-section-title"><span>快速选择检索项目</span><span id="project-count">—</span></div>
+    <div id="project-list" class="project-list" aria-label="选择下一次检索的项目"><div class="sidebar-loading">正在读取目录…</div></div>
+    <div class="sidebar-bottom">
+      <div class="storage-card"><div class="storage-title"><svg><use href="#i-box"/></svg><span>私有资料库</span></div><p id="storage-path" class="storage-path">正在读取资料库…</p><div class="storage-meta"><span id="storage-size">—</span><span>原文与向量本地保存</span></div></div>
+      <button id="health-button" class="service-state" type="button" title="刷新服务状态"><span id="service-dot" class="status-dot"></span><span id="service-label">正在连接推理服务</span><svg><use href="#i-refresh"/></svg></button>
+      <div class="sidebar-footnote">由 OmniEmbedding 提供支持 <span>↗</span></div>
+    </div>
+  </aside>
+
+  <div class="app-shell">
+    <header class="topbar"><div class="breadcrumb"><button id="mobile-menu" class="icon-button mobile-menu" aria-label="展开导航" aria-expanded="false" aria-controls="sidebar"><svg><use href="#i-menu"/></svg></button><span class="breadcrumb-workspace">工作空间</span><svg><use href="#i-chevron"/></svg><span id="breadcrumb-current">探索检索</span></div><div class="topbar-right"><span class="topbar-local"><span class="status-dot green"></span>仅本机访问</span><span class="topbar-divider"></span><button id="sync-button" class="button small" type="button" hidden><svg><use href="#i-refresh"/></svg>同步资料库</button></div></header>
+    <main id="main" tabindex="-1">
+      <div id="global-notice" class="notice error" role="alert" hidden></div>
+      <section id="view-search" class="view search-view" aria-labelledby="search-heading">
+        <div class="page-heading search-hero"><div><div class="eyebrow"><span></span> 你的代码与文档，触手可及</div><h1 id="search-heading">从想法，找到实现<span class="heading-period">.</span></h1><p>搜索自己的资料，每一条结果都有出处。</p></div><div class="heading-decoration" aria-hidden="true"><svg viewBox="0 0 110 80"><path d="m55 7 45 26-45 26L10 33Z"/><path d="m10 44 45 26 45-26M10 55l45 26 45-26"/><path d="M55 7v52"/></svg></div></div>
+        <form id="search-form" class="search-panel" role="search">
+          <div class="query-row"><svg class="query-icon" aria-hidden="true"><use href="#i-search"/></svg><label class="sr-only" for="query">搜索代码与文档</label><input type="search" id="query" name="query" placeholder="你想找到什么？" autocomplete="off" maxlength="4000" required><button class="button primary search-submit" id="search-submit" type="submit"><span>搜索</span><svg><use href="#i-arrow"/></svg></button></div>
+          <div class="search-options"><div class="mode-switch" role="radiogroup" aria-label="检索方式"><button type="button" class="mode-button selected" data-mode="hybrid" role="radio" aria-checked="true">混合</button><button type="button" class="mode-button" data-mode="vector" role="radio" aria-checked="false" tabindex="-1">语义</button><button type="button" class="mode-button" data-mode="bm25" role="radio" aria-checked="false" tabindex="-1" title="BM25 召回与词项重排">关键词</button></div><label class="search-project"><svg aria-hidden="true"><use href="#i-folder"/></svg><span class="sr-only">检索项目</span><select id="project-filter" aria-label="检索项目"><option value="">全部项目</option></select></label><span id="algorithm-label" class="sr-only">混合检索</span><details class="advanced-controls"><summary><svg><use href="#i-sliders"/></svg><span>筛选与设置</span><span id="advanced-count" class="filter-count" hidden></span><svg class="settings-chevron"><use href="#i-chevron"/></svg></summary><div class="advanced-popover"><div class="advanced-grid"><label>文件类型<select id="extension-filter" aria-label="文件类型"><option value="">全部类型</option></select></label><label>结果数量<select id="result-limit" aria-label="结果数量"><option value="10">10 条</option><option value="20">20 条</option><option value="50">50 条</option></select></label><label>每路候选数<select id="candidates"><option value="50">50</option><option value="100" selected>100</option><option value="200">200</option><option value="500">500</option></select></label></div><div class="weight-control"><label class="weight-label" for="vector-weight"><span>混合检索中的语义权重</span><output id="weight-value" for="vector-weight">60%</output></label><input type="range" id="vector-weight" min="0" max="100" value="60" step="5"><div class="weight-scale"><span>关键词优先</span><span>语义优先</span></div></div><p id="mode-description">结合语义与关键词，按两路排名融合。</p></div></details></div>
+          <div id="search-draft" class="search-draft" role="status" hidden><span>检索条件已修改，当前仍显示上次结果。</span><button type="button" class="text-button" data-retry-search>重新搜索 <svg><use href="#i-arrow"/></svg></button></div>
+        </form>
+        <div id="search-warning" class="notice warning" role="status" hidden></div>
+        <div id="index-progress" class="index-progress" hidden><svg><use href="#i-activity"/></svg><div><strong id="index-progress-title">资料更新中</strong><span id="index-progress-description"></span></div><button type="button" class="text-button" data-open-jobs>查看进度 <span>↗</span></button></div>
+        <div id="search-results-heading" class="results-heading" hidden><div><h2 id="results-title">检索结果</h2><span id="results-meta" class="results-meta"></span><p id="results-context" class="results-context"></p></div><button id="show-trace" type="button" class="text-button" hidden><svg><use href="#i-code"/></svg>检索依据</button></div>
+        <div id="results" class="results" aria-live="polite" aria-busy="false"><div class="search-empty"><div class="query-suggestions"><span>从这里开始</span><button type="button" data-query="项目如何配置向量模型？">向量模型配置 <span>↗</span></button><button type="button" data-query="SQLite 数据库初始化">SQLite 初始化 <span>↗</span></button><button type="button" data-query="如何处理重试和超时？">重试与超时 <span>↗</span></button></div><div class="discovery-features"><div><svg><use href="#i-search"/></svg><h3>找到实现</h3><p>用问题、函数名或关键词开始搜索。</p></div><div><svg><use href="#i-file"/></svg><h3>回到原文</h3><p>沿着文件路径和行号，查看完整上下文。</p></div><div><svg><use href="#i-layers"/></svg><h3>看清依据</h3><p>比较语义与关键词，了解结果为何出现。</p></div></div></div></div>
+        <div class="page-footnote"><span><svg><use href="#i-info"/></svg>结果来自已收录的内容。资料范围与编码进度可在资料库查看。</span><button class="text-button" type="button" data-open-library>浏览资料库 <span>↗</span></button></div>
+      </section>
+
+      <section id="view-library" class="view" aria-labelledby="library-heading" hidden>
+        <div class="page-heading compact"><div><div class="eyebrow"><span></span> 我的资料</div><h1 id="library-heading">资料库<span class="heading-period">.</span></h1><p>看看收录了什么，回到每一份原文。</p></div><div class="heading-actions"><button id="scan-button" class="button" type="button"><svg><use href="#i-folder"/></svg>扫描目录</button><button id="embed-button" class="button primary" type="button"><svg><use href="#i-spark"/></svg>补齐向量</button></div></div>
+        <div class="metrics library-metrics" aria-label="全库概况">
+          <div class="metric"><div class="metric-label"><svg><use href="#i-file"/></svg>已收录文件</div><div class="metric-value" id="metric-files">—</div><div class="metric-note" id="metric-projects">正在读取项目</div></div>
+          <div class="metric"><div class="metric-label"><svg><use href="#i-layers"/></svg>可检索片段</div><div class="metric-value" id="metric-chunks">—</div><div class="metric-note">保留文件路径与原文行号</div></div>
+          <div class="metric"><div class="metric-label"><svg><use href="#i-spark"/></svg>全库向量覆盖</div><div class="metric-value" id="metric-coverage">—</div><div class="metric-note" id="metric-pending">正在读取向量状态</div></div>
+        </div>
+        <div class="library-source"><svg><use href="#i-folder"/></svg><span>来源目录</span><code id="library-root">正在读取…</code><span class="tiny-label">递归扫描</span></div><div class="library-model"><span>向量模型 <span id="metric-model">正在读取模型</span></span><span><span id="metric-dimensions">—</span> 维</span><span>概况统计全库；下方可筛选文件</span></div>
+        <div class="library-toolbar"><div class="compact-search"><svg><use href="#i-search"/></svg><label class="sr-only" for="library-query">按文件路径筛选</label><input id="library-query" type="search" placeholder="按文件路径筛选…"></div><label class="sr-only" for="library-project">资料库项目</label><select id="library-project"><option value="">全部项目</option></select><button id="library-refresh" class="icon-button" aria-label="刷新资料库"><svg><use href="#i-refresh"/></svg></button><span id="library-count" class="muted">—</span></div>
+        <div class="table-scroll"><table class="file-table"><thead><tr><th>文件 / 路径</th><th>项目</th><th class="numeric">大小</th><th class="numeric">片段</th><th>向量状态</th><th><span class="sr-only">查看</span></th></tr></thead><tbody id="file-rows"><tr><td colspan="6" class="table-empty">正在读取资料库…</td></tr></tbody></table></div>
+        <div class="pagination"><span id="library-page-label" class="muted"></span><div><button id="library-prev" class="button small" type="button" disabled>上一页</button><button id="library-next" class="button small" type="button" disabled>下一页</button></div></div>
+        <details class="exclusions-panel"><summary><svg><use href="#i-info"/></svg>收录规则与排除项</summary><p>源目录中的文本、代码与受支持的文档会被解析为片段。版本库、依赖、构建产物、密钥和不支持的二进制内容按配置排除。</p><div id="exclusions" class="exclusion-tags">正在读取配置…</div><button class="text-button" type="button" data-open-exclusions>查看实际跳过的文件与原因 ↗</button></details>
+      </section>
+
+      <section id="view-jobs" class="view" aria-labelledby="jobs-heading" hidden>
+        <div class="page-heading compact"><div><div class="eyebrow"><span></span> 更新与维护</div><h1 id="jobs-heading">索引任务<span class="heading-period">.</span></h1><p>查看资料更新进度，也能回看每次处理的记录。</p></div><button id="jobs-refresh" class="button" type="button"><svg><use href="#i-refresh"/></svg>刷新进度</button></div>
+        <details class="secondary-panel process-guide"><summary>资料如何变得可检索 <svg><use href="#i-chevron"/></svg></summary><div class="pipeline"><div><span class="pipeline-number">01</span><svg><use href="#i-folder"/></svg><strong>扫描文件</strong><span>识别内容与变更</span></div><svg class="pipeline-arrow"><use href="#i-arrow"/></svg><div><span class="pipeline-number">02</span><svg><use href="#i-layers"/></svg><strong>解析与切片</strong><span>保留来源与行号</span></div><svg class="pipeline-arrow"><use href="#i-arrow"/></svg><div><span class="pipeline-number">03</span><svg><use href="#i-spark"/></svg><strong>生成向量</strong><span>调用已配置的推理服务</span></div><svg class="pipeline-arrow"><use href="#i-arrow"/></svg><div><span class="pipeline-number">04</span><svg><use href="#i-box"/></svg><strong>本地存储</strong><span>原文与向量保存在本机</span></div></div></details>
+        <div class="section-label"><h2>当前任务</h2><span class="muted">页面定期读取进度</span></div><div id="current-job" class="current-job"><div class="plain-empty">正在读取任务…</div></div>
+        <div class="section-label"><h2>编码批次</h2><button id="batches-refresh" class="text-button" type="button">刷新批次 <svg><use href="#i-refresh"/></svg></button></div><div id="batch-summary" class="batch-summary"></div><details class="secondary-panel batch-observation"><summary>查看逐批记录 <svg><use href="#i-chevron"/></svg></summary><div id="latest-batches" class="batch-list"><div class="plain-empty">尚未读取编码批次。</div></div></details>
+        <div class="section-label"><h2>最近扫描报告</h2><button class="text-button" type="button" data-open-exclusions>跳过清单 ↗</button></div><div id="scan-report" class="scan-report"><div class="plain-empty">尚无扫描报告</div></div>
+        <div class="section-label"><h2>最近任务</h2><span id="recent-job-count" class="muted"></span></div><div id="recent-jobs" class="recent-jobs"><div class="plain-empty">正在读取任务…</div></div>
+        <details class="secondary-panel query-history"><summary>历史检索 <svg><use href="#i-chevron"/></svg></summary><div class="history-toolbar"><span>恢复原参数，在当前资料库重新搜索</span><button id="traces-refresh" class="text-button" type="button">刷新记录 <svg><use href="#i-refresh"/></svg></button></div><div id="recent-traces" class="recent-traces"><div class="plain-empty">切换到此页后读取检索记录</div></div></details>
+      </section>
+
+      <section id="view-exclusions" class="view" aria-labelledby="exclusion-heading" hidden>
+        <div class="page-heading compact"><div><div class="eyebrow"><span></span> 收录范围</div><h1 id="exclusion-heading">跳过清单<span class="heading-period">.</span></h1><p>了解哪些文件未被收录，以及为什么。</p></div><button id="exclusion-refresh" class="button" type="button"><svg><use href="#i-refresh"/></svg>刷新清单</button></div>
+        <div class="exclusion-toolbar"><div class="compact-search"><svg><use href="#i-search"/></svg><label class="sr-only" for="exclusion-query">搜索跳过文件路径</label><input id="exclusion-query" type="search" maxlength="512" placeholder="搜索跳过文件路径…"></div><label class="sr-only" for="exclusion-reason">跳过原因</label><select id="exclusion-reason"><option value="">全部原因</option></select><label class="sr-only" for="exclusion-project">跳过文件的项目</label><input id="exclusion-project" class="filter-input" maxlength="512" placeholder="项目名（可选）"><span id="exclusion-count" class="muted">—</span></div>
+        <div class="table-scroll"><table class="file-table exclusion-table"><thead><tr><th>已登记文件 / 路径</th><th>项目</th><th class="numeric">大小</th><th>状态</th><th>跳过 / 异常原因</th></tr></thead><tbody id="exclusion-rows"><tr><td colspan="5" class="table-empty">进入页面后读取跳过清单</td></tr></tbody></table></div>
+        <div class="pagination"><span id="exclusion-page-label" class="muted"></span><div><button id="exclusion-prev" class="button small" type="button" disabled>上一页</button><button id="exclusion-next" class="button small" type="button" disabled>下一页</button></div></div>
+        <div class="section-label"><h2>目录排除样例</h2><span class="muted">样例与文件总数分别统计</span></div><div id="excluded-directories" class="excluded-directories"><div class="plain-empty">尚无目录样例</div></div><p class="jobs-note">依赖、版本库等被整目录排除时，不会递归登记内部文件。这里的文件列表与目录样例不能相加作为源目录的完整文件总数。</p>
+      </section>
+
+      <section id="view-evaluations" class="view" aria-labelledby="evaluation-heading" hidden>
+        <div class="page-heading compact"><div><div class="eyebrow"><span></span> 检索质量</div><h1 id="evaluation-heading">质量评测<span class="heading-period">.</span></h1><p>查看真实试验结果，也保留未通过的记录。</p></div><button id="evaluations-refresh" class="button" type="button"><svg><use href="#i-refresh"/></svg>刷新记录</button></div>
+        <div class="evaluation-toolbar"><label for="evaluation-run">评测运行 / 试验轮次</label><select id="evaluation-run"><option value="">正在读取运行记录…</option></select><span id="evaluation-count" class="muted">—</span></div>
+        <div id="evaluation-detail" class="evaluation-detail" aria-live="polite"><div class="plain-empty">进入此页后读取本地保存的评测记录。浏览记录不会提交检索或 GPU 请求。</div></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="detail-dialog" class="detail-dialog" aria-labelledby="detail-title"><div class="detail-topbar"><div><span class="eyebrow" id="detail-eyebrow">原文与依据</span><h2 id="detail-title">原文与召回详情</h2></div><button id="detail-close" class="icon-button" type="button" aria-label="关闭详情"><svg><use href="#i-close"/></svg></button></div><div id="detail-body" class="detail-body"></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript><div class="noscript">请启用 JavaScript，以连接本地资料库并使用检索功能。</div></noscript>
+</body>
+</html>

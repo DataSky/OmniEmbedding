@@ -9,13 +9,53 @@ import threading
 import time
 from pathlib import Path
 import os
+import re
 
 import numpy as np
 
 from .config import CONFIG
-from .health import HEALTH, InferenceError
+from .health import HEALTH, InferenceError, InferenceInputError
 
 QUERY_PREFIX = "task: search result | query: "
+TEXT_INPUT_POLICY = "media-literals-space-v1"
+_TEXT_MEDIA_LITERALS = ("<|image|>", "<|audio|>", "<|video|>")
+_PROCESSOR_INPUT_PATTERNS = (
+    ("processor_image_without_media", re.compile(r"Found [1-9][0-9]* <\|image\|> tokens in the text but no images were passed\.")),
+    ("processor_audio_without_media", re.compile(r"Found [1-9][0-9]* <\|audio\|> tokens in the text but no audio inputs were passed\.")),
+    ("processor_video_without_media", re.compile(r"Found [1-9][0-9]* <\|video\|> tokens in the text but no videos were passed\.")),
+)
+
+
+def literal_text(text: str) -> str:
+    """Encode reserved media spellings as text, without changing stored sources.
+
+    Visible ASCII spaces break the processor's exact placeholder match while
+    retaining each token's letters and punctuation. Zero-width separators can
+    disappear during normalization and hide the policy from inspection.
+    """
+    for marker in _TEXT_MEDIA_LITERALS:
+        text = text.replace(marker, "< " + marker[1:-1] + " >")
+    return text
+
+
+def processor_input_reason(exc: BaseException) -> str | None:
+    """Recognize only the deployed processor's three missing-media errors."""
+    if type(exc) is not ValueError or len(exc.args) != 1 or not isinstance(exc.args[0], str):
+        return None
+    message = exc.args[0]
+    if len(message) > 256:
+        return None
+    reason = next((code for code, pattern in _PROCESSOR_INPUT_PATTERNS if pattern.fullmatch(message)), None)
+    if reason is None:
+        return None
+    trace = exc.__traceback__
+    while trace is not None:
+        frame = trace.tb_frame
+        if (frame.f_globals.get("__name__") == "transformers.models.embedding_gemma2.processing_embedding_gemma2"
+                and frame.f_code.co_name == "validate_inputs"):
+            return reason
+        trace = trace.tb_next
+    return None
 
 
 def doc_text(title: str, text: str) -> str:
@@ -30,6 +70,8 @@ def renorm(x: np.ndarray, dim: int | None) -> np.ndarray:
 
 
 class Encoder:
+    text_input_policy = TEXT_INPUT_POLICY
+
     def __init__(self, model_id=None, device=None, revision=None, dtype=None):
         self.model_id = model_id or CONFIG.model_id
         self.device = device or CONFIG.device
@@ -107,17 +149,20 @@ class Encoder:
             except InferenceError:
                 raise
             except Exception as ex:
+                reason = processor_input_reason(ex)
+                if reason is not None:
+                    raise InferenceInputError(reason) from None
                 raise InferenceError("InferenceError", f"{type(ex).__name__}: {ex}"[:300]) from ex
         return np.asarray(e, dtype=np.float32)
 
     def query(self, texts, bs=64):
-        return self._enc([QUERY_PREFIX + t for t in texts], bs)
+        return self._enc([literal_text(QUERY_PREFIX + t) for t in texts], bs)
 
     def texts(self, texts, prefix="", bs=64, token_budget=32768, lock_timeout=None):
         """任意前缀的文本编码（/v1/embeddings 用）。
         按长度排序后分批，每批 token 总数不超过 token_budget：短文本照常大批处理，
         长文本自动降到小批，避免几条 8k token 的输入把显存占满（实测不限长度时单批可申请 30+ GiB）。"""
-        items = [prefix + t for t in texts]
+        items = [literal_text(prefix + t) for t in texts]
         tok = self._model().tokenizer
         lens = [min(len(tok(t)["input_ids"]), 8192) for t in items]
         order = sorted(range(len(items)), key=lambda i: lens[i])
@@ -138,7 +183,7 @@ class Encoder:
         return sum(len(tok(t)["input_ids"]) for t in texts)
 
     def docs(self, titles, texts, bs=64):
-        return self._enc([doc_text(a, b) for a, b in zip(titles, texts)], bs)
+        return self._enc([literal_text(doc_text(a, b)) for a, b in zip(titles, texts)], bs)
 
     def videos(self, frame_arrays, bs=4):
         """frame_arrays: list of [T,H,W,3] RGB uint8。同一批内帧尺寸可以不同。"""
